@@ -162,6 +162,8 @@ function buildDetail() {
       el("pre", { id: "attrs" })),
     el("section", {}, el("h2", { text: "Send command" }),
       el("div", { class: "row" }, action, send), el("div", { class: "sub", text: "Params (JSON)" }), params, err),
+    el("section", {}, el("h2", { text: "Messages received by this node" }),
+      el("div", { class: "sub", text: "Receipt time is reported by the node itself, not the broker." }), el("div", { id: "received" })),
     el("section", {}, el("h2", { text: "Commands & responses" }), el("div", { id: "cmds" })),
     el("section", {}, el("h2", { text: "Messages from device" }), el("div", { id: "msg-feed" })));
   messages = []; lastMsgId = 0;
@@ -175,6 +177,23 @@ function renderDeviceMeta() {
 }
 
 const hasParams = (c) => c.params && Object.keys(c.params).length > 0;
+// How long the broker-to-node hop took, from the node's own receipt timestamp.
+const nodeLatency = (c) => c.received_at ? Math.max(0, Math.round(new Date(c.received_at) - new Date(c.created_at))) + " ms" : "";
+
+function renderReceived(cmds) {
+  const box = $("received"); if (!box) return;
+  if (!cmds.length) { box.replaceChildren(el("div", { class: "empty", text: "Nothing has been sent to this node yet." })); return; }
+  box.replaceChildren(el("table", {},
+    el("thead", {}, el("tr", {}, ...["Sent by controller", "Node received", "Instruction", "Params as received", "Sent → received"].map((h) => el("th", { text: h })))),
+    el("tbody", {}, ...cmds.map((c) => el("tr", {},
+      el("td", { text: fmt(c.created_at) }),
+      el("td", {}, c.received_at ? el("span", { text: fmt(c.received_at) })
+        : badge(c.delivered_at ? "queued — not confirmed by node" : "not sent")),
+      el("td", { text: c.action }),
+      el("td", {}, hasParams(c) ? el("pre", { text: json(c.params) }) : el("span", { class: "sub", text: "—" })),
+      el("td", { text: nodeLatency(c) || "—" }))))));
+}
+
 const roundTrip = (c) => c.completed_at ? Math.round(new Date(c.completed_at) - new Date(c.created_at)) + " ms" : "—";
 
 // Fleet-wide feed of the newest instructions, shown when no device is selected.
@@ -183,13 +202,13 @@ async function renderFleetActivity() {
   const cmds = await api("/commands?limit=50");
   if (!cmds.length) { box.replaceChildren(el("div", { class: "empty", text: "No instructions sent yet. Pick a device and send one." })); return; }
   box.replaceChildren(el("table", {},
-    el("thead", {}, el("tr", {}, ...["Time", "Device", "Instruction", "Params", "Status", "Round trip", "Response from device"].map((h) => el("th", { text: h })))),
+    el("thead", {}, el("tr", {}, ...["Time", "Device", "Instruction", "Params", "Status", "Node received", "Round trip", "Response from device"].map((h) => el("th", { text: h })))),
     el("tbody", {}, ...cmds.map((c) => {
       const dev = el("a", { href: "#", text: c.device_id });
       dev.onclick = (ev) => { ev.preventDefault(); selectDevice(c.device_id); };
       return el("tr", {}, el("td", { text: fmt(c.created_at) }), el("td", {}, dev), el("td", { text: c.action }),
         el("td", {}, hasParams(c) ? el("pre", { text: json(c.params) }) : el("span", { class: "sub", text: "—" })),
-        el("td", {}, badge(c.status)), el("td", { text: roundTrip(c) }),
+        el("td", {}, badge(c.status)), el("td", { text: c.received_at ? fmt(c.received_at) : "—" }), el("td", { text: roundTrip(c) }),
         el("td", {}, c.result ? el("pre", { text: json(c.result) }) : el("span", { class: "sub", text: "—" })));
     }))));
 }
@@ -227,7 +246,7 @@ async function refreshSelected() {
     lastMsgId = fresh[0].id;  // newest first
     messages = fresh.concat(messages).slice(0, 100);
   }
-  renderCommands(cmds); renderMessages(); renderDeviceMeta();
+  renderCommands(cmds); renderReceived(cmds); renderMessages(); renderDeviceMeta();
 }
 
 function selectDevice(id) {

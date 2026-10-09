@@ -76,6 +76,11 @@ func (cl *Client) publish(suffix string, v any) {
 func (cl *Client) PublishHeartbeat(p map[string]any) { cl.publish("heartbeat", p) }
 func (cl *Client) PublishTelemetry(p map[string]any) { cl.publish("telemetry", p) }
 
-func (cl *Client) PublishAck(commandID, status string, result map[string]any) {
-	cl.publish("cmd/ack", map[string]any{"command_id": commandID, "status": status, "result": result})
+// PublishAck reports a command result. receivedAt is when the agent got the
+// command, so the controller can show node-side receipt, not just broker delivery.
+func (cl *Client) PublishAck(commandID, status string, result map[string]any, receivedAt time.Time) {
+	cl.publish("cmd/ack", map[string]any{
+		"command_id": commandID, "status": status, "result": result,
+		"received_at": receivedAt.UTC().Format(time.RFC3339Nano),
+	})
 }

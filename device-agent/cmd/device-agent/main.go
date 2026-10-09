@@ -48,6 +48,7 @@ func (a *agent) ensureCredential() (string, error) {
 }
 
 func (a *agent) handleCommand(payload map[string]any) {
+	receivedAt := time.Now()
 	commandID, _ := payload["command_id"].(string)
 	action, _ := payload["action"].(string)
 	if commandID == "" || action == "" {
@@ -57,7 +58,7 @@ func (a *agent) handleCommand(payload map[string]any) {
 	params, _ := payload["params"].(map[string]any)
 	slog.Info("command_received", "command_id", commandID, "action", action)
 	status, result := commands.Execute(a.cfg, action, params)
-	a.mqtt.PublishAck(commandID, status, result)
+	a.mqtt.PublishAck(commandID, status, result, receivedAt)
 	slog.Info("command_acked", "command_id", commandID, "status", status)
 }
 

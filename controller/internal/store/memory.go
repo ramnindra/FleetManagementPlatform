@@ -166,14 +166,14 @@ func (m *Memory) MarkDelivered(_ context.Context, id string, at time.Time) error
 	return nil
 }
 
-func (m *Memory) ApplyAck(_ context.Context, id, status string, result map[string]any, at time.Time) (bool, error) {
+func (m *Memory) ApplyAck(_ context.Context, id, status string, result map[string]any, receivedAt *time.Time, at time.Time) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	c, ok := m.commands[id]
 	if !ok || model.IsTerminal(c.Status) {
 		return false, nil
 	}
-	c.Status, c.Result, c.CompletedAt = status, result, &at
+	c.Status, c.Result, c.CompletedAt, c.ReceivedAt = status, result, &at, receivedAt
 	return true, nil
 }
 

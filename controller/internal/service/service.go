@@ -216,8 +216,8 @@ func (s *Service) MarkDelivered(ctx context.Context, id string) error {
 }
 
 // ApplyAck is idempotent: a duplicate ack for a terminal command is a no-op.
-func (s *Service) ApplyAck(ctx context.Context, id, status string, result map[string]any) (bool, error) {
-	applied, err := s.Store.ApplyAck(ctx, id, status, result, time.Now().UTC())
+func (s *Service) ApplyAck(ctx context.Context, id, status string, result map[string]any, receivedAt *time.Time) (bool, error) {
+	applied, err := s.Store.ApplyAck(ctx, id, status, result, receivedAt, time.Now().UTC())
 	if err != nil {
 		return false, err
 	}

@@ -207,6 +207,7 @@ func (d *Device) onMessage(c paho.Client, msg paho.Message) {
 	if json.Unmarshal(msg.Payload(), &payload) != nil {
 		return
 	}
+	receivedAt := time.Now().UTC().Format(time.RFC3339Nano)
 	d.metrics.CommandsReceived.Add(1)
 	commandID, _ := payload["command_id"].(string)
 	action, _ := payload["action"].(string)
@@ -223,7 +224,7 @@ func (d *Device) onMessage(c paho.Client, msg paho.Message) {
 	} else {
 		status, result = d.execute(action, params)
 	}
-	ack, _ := json.Marshal(map[string]any{"command_id": commandID, "status": status, "result": result})
+	ack, _ := json.Marshal(map[string]any{"command_id": commandID, "status": status, "result": result, "received_at": receivedAt})
 	c.Publish(fmt.Sprintf("devices/%s/cmd/ack", d.ID), 1, false, ack)
 	d.metrics.CommandsAcked.Add(1)
 

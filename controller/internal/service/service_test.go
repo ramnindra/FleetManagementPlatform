@@ -63,18 +63,22 @@ func TestAckIsIdempotent(t *testing.T) {
 	s, _ := newSvc()
 	s.RegisterDevice(t.Context(), "d", "edge", nil, time.Hour)
 	c, _, _ := s.CreateCommand(t.Context(), "d", "ping", nil, nil)
+	recv := time.Now().UTC().Add(-time.Second)
 
-	if ok, _ := s.ApplyAck(t.Context(), c.CommandID, "success", map[string]any{"a": 1}); !ok {
+	if ok, _ := s.ApplyAck(t.Context(), c.CommandID, "success", map[string]any{"a": 1}, &recv); !ok {
 		t.Fatal("first ack should apply")
 	}
-	if ok, _ := s.ApplyAck(t.Context(), c.CommandID, "failed", nil); ok {
+	if ok, _ := s.ApplyAck(t.Context(), c.CommandID, "failed", nil, nil); ok {
 		t.Fatal("duplicate ack must be ignored")
 	}
 	got, _ := s.GetCommand(t.Context(), c.CommandID)
+	if got.ReceivedAt == nil || !got.ReceivedAt.Equal(recv) {
+		t.Fatalf("received_at not stored: %v", got.ReceivedAt)
+	}
 	if got.Status != model.CmdSuccess {
 		t.Fatalf("status = %s", got.Status)
 	}
-	if ok, _ := s.ApplyAck(t.Context(), "unknown", "success", nil); ok {
+	if ok, _ := s.ApplyAck(t.Context(), "unknown", "success", nil, nil); ok {
 		t.Fatal("unknown command ack must not apply")
 	}
 }
@@ -83,7 +87,7 @@ func TestMarkDeliveredDoesNotRegressTerminal(t *testing.T) {
 	s, _ := newSvc()
 	s.RegisterDevice(t.Context(), "d", "edge", nil, time.Hour)
 	c, _, _ := s.CreateCommand(t.Context(), "d", "ping", nil, nil)
-	s.ApplyAck(t.Context(), c.CommandID, "success", nil)
+	s.ApplyAck(t.Context(), c.CommandID, "success", nil, nil)
 	s.MarkDelivered(t.Context(), c.CommandID)
 	got, _ := s.GetCommand(t.Context(), c.CommandID)
 	if got.Status != model.CmdSuccess {

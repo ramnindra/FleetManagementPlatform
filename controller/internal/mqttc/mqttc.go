@@ -92,6 +92,20 @@ func (cl *Client) subscribeAll(c paho.Client) {
 	}
 }
 
+// parseReceivedAt reads the device-reported receipt time (RFC 3339) from an ack.
+func parseReceivedAt(v any) *time.Time {
+	s, ok := v.(string)
+	if !ok {
+		return nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return nil
+	}
+	t = t.UTC()
+	return &t
+}
+
 func deviceIDFromTopic(topic string) string {
 	parts := strings.Split(topic, "/")
 	if len(parts) < 2 || parts[0] != "devices" {
@@ -148,7 +162,7 @@ func (cl *Client) handleAck(ctx context.Context, deviceID string, payload map[st
 	if result == nil {
 		result = map[string]any{}
 	}
-	applied, err := cl.svc.ApplyAck(ctx, commandID, status, result)
+	applied, err := cl.svc.ApplyAck(ctx, commandID, status, result, parseReceivedAt(payload["received_at"]))
 	if err != nil {
 		slog.Error("apply_ack_failed", "command_id", commandID, "error", err)
 		return

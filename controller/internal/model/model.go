@@ -47,7 +47,9 @@ type Command struct {
 	IdempotencyKey *string        `json:"-"`
 	CreatedAt      time.Time      `json:"created_at"`
 	DeliveredAt    *time.Time     `json:"delivered_at"`
-	CompletedAt    *time.Time     `json:"completed_at"`
+	// ReceivedAt is when the device reports it received the command (device clock).
+	ReceivedAt  *time.Time `json:"received_at"`
+	CompletedAt *time.Time `json:"completed_at"`
 }
 
 // DeviceMessage is a heartbeat/telemetry/ack kept briefly so the web UI can

@@ -35,7 +35,8 @@ type Store interface {
 	ListRecentCommands(ctx context.Context, limit int) ([]model.Command, error)
 	MarkDelivered(ctx context.Context, id string, at time.Time) error
 	// ApplyAck is a no-op (applied=false) for unknown or already-terminal commands.
-	ApplyAck(ctx context.Context, id, status string, result map[string]any, at time.Time) (applied bool, err error)
+	// receivedAt is the device-reported receipt time, if it sent one.
+	ApplyAck(ctx context.Context, id, status string, result map[string]any, receivedAt *time.Time, at time.Time) (applied bool, err error)
 
 	AddMessage(ctx context.Context, m *model.DeviceMessage, retention time.Duration) error
 	ListMessages(ctx context.Context, deviceID string, limit int, afterID int64) ([]model.DeviceMessage, error)

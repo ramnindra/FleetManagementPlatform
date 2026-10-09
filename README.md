@@ -144,3 +144,12 @@ The web UI's home view lists the latest instructions across the whole fleet
 (params, status, round-trip time, and the device's response); selecting a device
 shows the same for that node. Nodes report type-specific synthetic telemetry
 (switch ports/throughput, GPU utilization/temperature/power, edge CPU/memory).
+
+### What each node actually received
+
+Each device's page has a **Messages received by this node** table: when the
+controller sent each instruction, when the *node itself* says it received it
+(the node stamps `received_at` in its ack), the params as received, and the
+send-to-receive latency. An instruction the broker accepted but the node never
+confirmed shows as "queued — not confirmed by node" (e.g. the node is offline).
+The simulator prints the same thing on its console as `← INSTRUCTION`.

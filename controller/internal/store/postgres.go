@@ -186,13 +186,13 @@ func (p *Postgres) CountDevices(ctx context.Context, cutoff time.Time) (int, int
 	return online, total, err
 }
 
-const commandCols = `command_id, device_id, action, params, status, result, idempotency_key, created_at, delivered_at, completed_at`
+const commandCols = `command_id, device_id, action, params, status, result, idempotency_key, created_at, delivered_at, completed_at, received_at`
 
 func scanCommand(row pgx.Row) (*model.Command, error) {
 	var c model.Command
 	var params, result []byte
 	err := row.Scan(&c.CommandID, &c.DeviceID, &c.Action, &params, &c.Status, &result, &c.IdempotencyKey,
-		&c.CreatedAt, &c.DeliveredAt, &c.CompletedAt)
+		&c.CreatedAt, &c.DeliveredAt, &c.CompletedAt, &c.ReceivedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -260,9 +260,9 @@ func (p *Postgres) MarkDelivered(ctx context.Context, id string, at time.Time) e
 	return err
 }
 
-func (p *Postgres) ApplyAck(ctx context.Context, id, status string, result map[string]any, at time.Time) (bool, error) {
-	tag, err := p.pool.Exec(ctx, `UPDATE commands SET status=$2, result=$3, completed_at=$4
-		WHERE command_id=$1 AND status NOT IN ('success','failed','expired')`, id, status, jsonOrNil(result), at)
+func (p *Postgres) ApplyAck(ctx context.Context, id, status string, result map[string]any, receivedAt *time.Time, at time.Time) (bool, error) {
+	tag, err := p.pool.Exec(ctx, `UPDATE commands SET status=$2, result=$3, completed_at=$4, received_at=$5
+		WHERE command_id=$1 AND status NOT IN ('success','failed','expired')`, id, status, jsonOrNil(result), at, receivedAt)
 	return tag.RowsAffected() == 1, err
 }
 
