@@ -1,0 +1,18 @@
+# Non-secret controller configuration. Split from the Secret below so a
+# config-only change (e.g. log level) doesn't require touching anything that
+# needs encryption-at-rest / RBAC-restricted read access.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "device-controller.fullname" . }}-config
+  namespace: {{ include "device-controller.namespace" . }}
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+data:
+  CONTROLLER_MQTT_HOST: "{{ include "device-controller.fullname" . }}-emqx"
+  CONTROLLER_MQTT_PORT: "1883"
+  CONTROLLER_MQTT_CLIENT_USERNAME: {{ .Values.controller.secrets.mqttClientUsername | quote }}
+  CONTROLLER_ENROLLMENT_TOKEN_TTL_SECONDS: {{ .Values.controller.env.enrollmentTokenTtlSeconds | quote }}
+  CONTROLLER_OFFLINE_THRESHOLD_SECONDS: {{ .Values.controller.env.offlineThresholdSeconds | quote }}
+  CONTROLLER_LOG_LEVEL: {{ .Values.controller.env.logLevel | quote }}
+  CONTROLLER_ENVIRONMENT: {{ .Values.controller.env.environment | quote }}

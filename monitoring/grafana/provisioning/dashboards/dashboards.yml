@@ -1,0 +1,7 @@
+apiVersion: 1
+providers:
+  - name: device-controller
+    folder: ""
+    type: file
+    options:
+      path: /var/lib/grafana/dashboards

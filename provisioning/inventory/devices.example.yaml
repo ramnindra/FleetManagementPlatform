@@ -1,0 +1,31 @@
+# Bulk device inventory consumed by provisioning/scripts/bulk_provision.py.
+# Each entry becomes one controller registration + one rendered per-device
+# enrollment bundle under provisioning/output/<device_id>/ — no controller
+# code change is needed to add, remove, or change a device here.
+#
+# heartbeat_interval_seconds is optional per device (defaults to 30).
+
+devices:
+  - device_id: switch-rack3-01
+    device_type: switch
+    attributes:
+      site: dc1
+      rack: "3"
+
+  - device_id: switch-rack3-02
+    device_type: switch
+    attributes:
+      site: dc1
+      rack: "3"
+
+  - device_id: gpu-node-001
+    device_type: gpu
+    heartbeat_interval_seconds: 15
+    attributes:
+      site: dc1
+      gpu_model: "A100"
+
+  - device_id: edge-sensor-001
+    device_type: edge
+    attributes:
+      site: branch-04

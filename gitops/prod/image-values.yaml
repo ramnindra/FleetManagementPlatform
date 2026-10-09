@@ -1,0 +1,8 @@
+# Updated by .github/workflows/promote-prod.yml ONLY after a manual approval
+# gate (GitHub Environment "production") — the SAME digest promoted through
+# dev and staging, never a rebuild. Argo CD watches this path.
+# repository is the same single ECR repo as gitops/dev and gitops/staging.
+controller:
+  image:
+    repository: "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/device-controller"
+    digest: ""

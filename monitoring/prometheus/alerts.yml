@@ -1,0 +1,52 @@
+groups:
+  - name: device-controller
+    rules:
+      - alert: ControllerDown
+        expr: up{job="device-controller"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Controller target is down"
+          description: "Prometheus has not been able to scrape the controller for 1 minute."
+
+      - alert: HighCommandFailureRate
+        expr: |
+          sum(rate(controller_command_acks_received_total{status="failed"}[5m]))
+          /
+          sum(rate(controller_command_acks_received_total[5m])) > 0.1
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "More than 10% of command acks are failures"
+          description: "Check device-agent logs and recent command payloads — devices are reachable but rejecting or failing commands."
+
+      - alert: NoCommandAcksButCommandsPublished
+        expr: |
+          sum(rate(controller_commands_published_total[10m])) > 0
+          and
+          sum(rate(controller_command_acks_received_total[10m])) == 0
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: "Commands are being published but nothing is acking"
+          description: "Likely broker->controller ack delivery is broken (EMQX down, controller MQTT client disconnected) — see docs/troubleshooting.md."
+
+      - alert: HighAPILatency
+        expr: |
+          histogram_quantile(0.95, sum(rate(controller_http_request_duration_seconds_bucket[5m])) by (le, path)) > 0.5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "p95 API latency above 500ms on {{ $labels.path }}"
+          description: "Check DB pool exhaustion first — see docs/load-test-report.md for exactly this failure mode under load."
+
+      - alert: DeviceFleetMostlyOffline
+        expr: |
+          controller_devices_online
+          /
+          (controller_devices_online + controller_devices_offline) < 0.5
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: "Fewer than 50% of registered devices are online"
+          description: "Check EMQX health and the controller's own MQTT connection first (controller_mqtt_connected-equivalent in logs), not individual devices."

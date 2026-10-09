@@ -1,0 +1,34 @@
+# Argo CD watches this repo for changes to BOTH sources below and syncs
+# automatically (no manual `kubectl apply` or `helm upgrade` for a normal
+# deploy — that is the entire point of GitOps). The Helm chart and the
+# per-environment image digest live in the same repo (see docs/cicd.md for
+# why monorepo was chosen over splitting app/config into two repos) but as
+# two separate Argo CD "sources" so Argo CD can watch the gitops/ path
+# independently of the chart path and merge their values at sync time.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: device-controller-dev
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/REPLACE_ME/cloud-device-controller.git
+      targetRevision: main
+      path: kubernetes/helm/device-controller
+      helm:
+        valueFiles:
+          - values-dev.yaml
+          - $values/gitops/dev/image-values.yaml
+    - repoURL: https://github.com/REPLACE_ME/cloud-device-controller.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: device-controller
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false # the chart's own namespace.yaml template creates it

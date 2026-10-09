@@ -1,0 +1,46 @@
+# Production overrides (EKS). Same model as staging — ECR image digest, RDS,
+# Secrets Manager — with more replicas/headroom and a real hostname/TLS.
+controller:
+  image:
+    repository: "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/device-controller"
+    tag: "" # set by CI to the image digest at deploy time (promoted unchanged from staging)
+  replicaCount: 3
+  resources:
+    requests: { cpu: 250m, memory: 256Mi }
+    limits: { cpu: 1000m, memory: 512Mi }
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 60
+  podDisruptionBudget:
+    minAvailable: 2
+  ingress:
+    enabled: true
+    className: "alb"
+    host: "controller.example.com"
+    tls: true
+  env:
+    environment: production
+  secrets:
+    useExternalSecrets: true
+  externalSecrets:
+    secretStoreRef: "aws-secrets-manager"
+    remoteRefPrefix: "device-controller/prod"
+
+emqx:
+  # See the comment in values-staging.yaml — stays at 1 until DNS-based
+  # cluster discovery is actually implemented and tested. This is a real
+  # single-point-of-failure in this reference implementation today; see
+  # docs/architecture.md section 9 (Failure behavior) and
+  # docs/roadmap.md Phase 9.
+  replicaCount: 1
+  resources:
+    requests: { cpu: 250m, memory: 512Mi }
+    limits: { cpu: 1000m, memory: 1Gi }
+  persistence:
+    size: 20Gi
+    storageClassName: "gp3"
+
+postgres:
+  enabled: false

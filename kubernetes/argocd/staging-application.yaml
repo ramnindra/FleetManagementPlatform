@@ -1,0 +1,27 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: device-controller-staging
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/REPLACE_ME/cloud-device-controller.git
+      targetRevision: main
+      path: kubernetes/helm/device-controller
+      helm:
+        valueFiles:
+          - values-staging.yaml
+          - $values/gitops/staging/image-values.yaml
+    - repoURL: https://github.com/REPLACE_ME/cloud-device-controller.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: device-controller
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false

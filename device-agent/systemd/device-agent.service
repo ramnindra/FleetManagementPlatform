@@ -1,0 +1,25 @@
+[Unit]
+Description=Cloud Device Controller Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=AGENT_CONFIG_PATH=/etc/device-agent/config.yaml
+WorkingDirectory=/opt/device-agent
+ExecStart=/opt/device-agent/device-agent
+Restart=always
+RestartSec=5
+User=device-agent
+Group=device-agent
+
+# Hardening: the agent only needs to read its own config/credential dir and
+# talk over the network — no reason to give it broader filesystem access.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/etc/device-agent
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

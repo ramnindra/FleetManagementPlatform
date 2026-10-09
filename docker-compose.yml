@@ -1,0 +1,54 @@
+name: cloud-device-controller
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: controller
+      POSTGRES_PASSWORD: controller
+      POSTGRES_DB: controller
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U controller"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  emqx:
+    image: emqx/emqx:5.8.8
+    ports:
+      - "1883:1883"   # MQTT (plaintext — dev only; TLS 8883 in prod, see docs/architecture.md)
+      - "18083:18083" # EMQX dashboard, http://localhost:18083 (default admin/public)
+    volumes:
+      - ./docker/emqx/emqx.conf:/opt/emqx/etc/emqx.conf:ro
+    healthcheck:
+      test: ["CMD", "/opt/emqx/bin/emqx_ctl", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  controller:
+    build: ./controller
+    environment:
+      CONTROLLER_DATABASE_URL: "postgresql://controller:controller@postgres:5432/controller"
+      CONTROLLER_MQTT_HOST: "emqx"
+      CONTROLLER_MQTT_PORT: "1883"
+      CONTROLLER_MQTT_CLIENT_USERNAME: "controller-service"
+      CONTROLLER_MQTT_CLIENT_PASSWORD: "change-me-controller-secret"
+      CONTROLLER_MQTT_WEBHOOK_SHARED_SECRET: "change-me-webhook-secret"
+      CONTROLLER_ADMIN_API_KEY: "dev-admin-key"
+      CONTROLLER_LOG_LEVEL: "INFO"
+      CONTROLLER_ENVIRONMENT: "development"
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
+
+volumes:
+  pgdata:

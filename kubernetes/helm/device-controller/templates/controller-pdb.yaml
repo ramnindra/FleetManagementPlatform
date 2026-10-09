@@ -1,0 +1,12 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "device-controller.fullname" . }}
+  namespace: {{ include "device-controller.namespace" . }}
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.controller.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "device-controller.controllerSelectorLabels" . | nindent 6 }}

@@ -1,0 +1,35 @@
+# Example device agent configuration. The provisioning tool generates one of
+# these per device from provisioning/templates/device-config.yaml.j2 and
+# delivers it to the device out-of-band (see docs/provisioning.md).
+
+device:
+  id: gpu-node-001
+  type: gpu          # one of: switch, gpu, edge
+
+controller:
+  api_endpoint: "http://localhost:8000"   # REST endpoint, used once for enrollment
+  mqtt_host: "localhost"
+  mqtt_port: 1883
+
+heartbeat:
+  interval_seconds: 30
+
+logging:
+  level: INFO
+
+agent:
+  # Where the device credential issued at enrollment is persisted (0600).
+  # Never commit a real value of this file to Git.
+  credential_path: "/etc/device-agent/gpu-node-001.credential"
+
+enrollment:
+  # One-time token from `POST /api/v1/devices/register`. Only needed the
+  # first time this device starts — once a credential exists at
+  # agent.credential_path, this field is ignored.
+  token: "REPLACE_WITH_ENROLLMENT_TOKEN"
+
+telemetry:
+  # true = synthetic GPU metrics (default, works without GPU hardware).
+  # false = attempt real NVML (pynvml) telemetry, falling back to simulated
+  # values if no GPU/driver is present.
+  simulate_gpu: true

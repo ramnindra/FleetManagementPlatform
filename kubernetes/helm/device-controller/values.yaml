@@ -1,0 +1,102 @@
+# Base defaults. values-dev.yaml / values-staging.yaml / values-prod.yaml
+# override only what differs per environment — see each file's header comment.
+
+namespace: device-controller
+
+controller:
+  image:
+    repository: cloud-device-controller-controller
+    tag: latest
+    # Set by CI for staging/prod deploys (gitops/<env>/image-values.yaml) to
+    # an immutable "sha256:..." digest. When set, it takes precedence over
+    # `tag` — see _helpers.tpl's device-controller.image template. Deploying
+    # a mutable :latest tag to production is exactly what this field exists
+    # to prevent.
+    digest: ""
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  containerPort: 8000
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 6
+    targetCPUUtilizationPercentage: 70
+  podDisruptionBudget:
+    minAvailable: 1
+  service:
+    port: 8000
+  ingress:
+    enabled: false
+    className: ""
+    host: controller.example.com
+    tls: false
+  env:
+    logLevel: INFO
+    environment: development
+    enrollmentTokenTtlSeconds: 3600
+    offlineThresholdSeconds: 90
+  # Secrets. For local/dev these are rendered straight into a k8s Secret from
+  # values (fine for a throwaway kind cluster, never for staging/prod — see
+  # values-staging.yaml / values-prod.yaml, which source these from
+  # AWS Secrets Manager via External Secrets instead).
+  secrets:
+    useExternalSecrets: false
+    adminApiKey: "dev-admin-key"
+    mqttClientUsername: "controller-service"
+    mqttClientPassword: "change-me-controller-secret"
+    mqttWebhookSharedSecret: "change-me-webhook-secret"
+    # Only used when postgres.enabled: true (see below). In staging/prod this
+    # is left empty here and supplied by the ExternalSecret instead.
+    databaseUrl: "postgresql://controller:controller@device-controller-postgres:5432/controller"
+  # externalSecrets is only read when secrets.useExternalSecrets is true.
+  externalSecrets:
+    secretStoreRef: "aws-secrets-manager"
+    remoteRefPrefix: "device-controller/dev"
+
+emqx:
+  image:
+    repository: emqx/emqx
+    tag: "5.8.8"
+  replicaCount: 1
+  # Erlang distribution cookie — not a device/API secret, just needed for a
+  # single-node EMQX to start. Would matter for real multi-node clustering
+  # (see the replicaCount comment in values-staging.yaml), so it is still
+  # worth overriding per environment rather than committing a shared value.
+  cookie: "dev-only-emqx-cookie-not-a-secret"
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  persistence:
+    enabled: true
+    size: 1Gi
+    storageClassName: ""
+
+# In-cluster Postgres — local/dev convenience only. Disabled in
+# values-staging.yaml and values-prod.yaml, which point controller.secrets
+# (via ExternalSecret) at an RDS instance created by Terraform instead.
+postgres:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16"
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  persistence:
+    size: 1Gi
+    storageClassName: ""
+  database: controller
+  user: controller
+  password: controller
+
+networkPolicy:
+  enabled: true
+
+monitoring:
+  # Adds prometheus.io/* scrape annotations understood by a plain Prometheus
+  # (no prometheus-operator CRDs required). Full Prometheus/Grafana deployment
+  # is Phase 9 (monitoring/).
+  enabled: true

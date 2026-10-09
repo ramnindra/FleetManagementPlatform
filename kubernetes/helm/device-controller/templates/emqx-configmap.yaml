@@ -1,0 +1,80 @@
+# Same approach as docker/emqx/emqx.conf for local Compose: EMQX delegates
+# auth/ACL to the controller's /internal/mqtt/* webhooks. Unlike the Compose
+# version, the webhook secret here is a PLACEHOLDER substituted at pod start
+# by an initContainer (see emqx-statefulset.yaml) from the same Kubernetes
+# Secret the controller reads — whether that Secret was rendered directly
+# from Helm values (dev) or populated by an ExternalSecret from AWS Secrets
+# Manager (staging/prod). Baking the real value into this ConfigMap via Helm
+# templating would silently use the WRONG (dev-default) value in
+# staging/prod, since Helm has no visibility into what the ExternalSecret
+# resolves to at render time — this indirection is what keeps the two in sync
+# in every environment.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "device-controller.fullname" . }}-emqx-config
+  namespace: {{ include "device-controller.namespace" . }}
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+data:
+  emqx.conf.template: |
+    node {
+      name = "emqx@127.0.0.1"
+      cookie = "{{ .Values.emqx.cookie }}"
+      data_dir = "/opt/emqx/data"
+    }
+
+    listeners.tcp.default {
+      bind = "0.0.0.0:1883"
+      max_connections = 2000000
+    }
+
+    authentication = [
+      {
+        mechanism = password_based
+        backend = http
+        enable = true
+        method = post
+        url = "http://{{ include "device-controller.fullname" . }}:{{ .Values.controller.service.port }}/internal/mqtt/auth"
+        body {
+          username = "${username}"
+          password = "${password}"
+          clientid = "${clientid}"
+        }
+        headers {
+          "Content-Type" = "application/json"
+          "X-Webhook-Secret" = "__MQTT_WEBHOOK_SHARED_SECRET__"
+        }
+        # See docs/load-test-report.md: the EMQX default pool_size=8
+        # measurably bottlenecked a 1,000-device connection burst in this
+        # project's local testing.
+        pool_size = 64
+        connect_timeout = "5s"
+        request_timeout = "10s"
+      }
+    ]
+
+    authorization {
+      no_match = deny
+      sources = [
+        {
+          type = http
+          enable = true
+          method = post
+          url = "http://{{ include "device-controller.fullname" . }}:{{ .Values.controller.service.port }}/internal/mqtt/acl"
+          body {
+            username = "${username}"
+            clientid = "${clientid}"
+            topic = "${topic}"
+            action = "${action}"
+          }
+          headers {
+            "Content-Type" = "application/json"
+            "X-Webhook-Secret" = "__MQTT_WEBHOOK_SHARED_SECRET__"
+          }
+          pool_size = 64 # see the authentication pool_size comment above
+          connect_timeout = "5s"
+          request_timeout = "10s"
+        }
+      ]
+    }

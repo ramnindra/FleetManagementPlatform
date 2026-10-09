@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "device-controller.fullname" . }}
+  namespace: {{ include "device-controller.namespace" . }}
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+    {{- include "device-controller.controllerSelectorLabels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controller.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "device-controller.controllerSelectorLabels" . | nindent 6 }}
+  # Rolling updates: one pod at a time replaced, never scaling below
+  # replicaCount-1 ready pods, so in-flight requests always have somewhere to
+  # land — this is what "update without disrupting device management" means
+  # at the Kubernetes layer (the MQTT broker/session layer is what actually
+  # keeps devices connected across a controller rollout, see
+  # docs/architecture.md).
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        {{- include "device-controller.labels" . | nindent 8 }}
+        {{- include "device-controller.controllerSelectorLabels" . | nindent 8 }}
+      {{- if .Values.monitoring.enabled }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.controller.containerPort }}"
+        prometheus.io/path: "/metrics"
+      {{- end }}
+    spec:
+      serviceAccountName: {{ include "device-controller.fullname" . }}-controller
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      containers:
+        - name: controller
+          image: "{{ include "device-controller.image" . }}"
+          imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.controller.containerPort }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "device-controller.fullname" . }}-config
+            - secretRef:
+                name: {{ include "device-controller.fullname" . }}-secrets
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            {{- toYaml .Values.controller.resources | nindent 12 }}
+          startupProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 2
+            failureThreshold: 30 # up to ~60s to come up before liveness can kill it
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+            periodSeconds: 5
+            failureThreshold: 3

@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "device-controller.fullname" . }}-emqx
+  namespace: {{ include "device-controller.namespace" . }}
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+    {{- include "device-controller.emqxSelectorLabels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "device-controller.fullname" . }}-emqx
+  replicas: {{ .Values.emqx.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "device-controller.emqxSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "device-controller.labels" . | nindent 8 }}
+        {{- include "device-controller.emqxSelectorLabels" . | nindent 8 }}
+    spec:
+      # EMQX's own image runs as root internally to manage its data dir
+      # ownership on first boot; we do not force a securityContext here the
+      # way we do for the controller, to avoid fighting the upstream image's
+      # expectations. This is scoped narrowly to the EMQX pod only.
+      initContainers:
+        - name: render-emqx-conf
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              sed "s/__MQTT_WEBHOOK_SHARED_SECRET__/$MQTT_WEBHOOK_SHARED_SECRET/g" \
+                /config-template/emqx.conf.template > /rendered/emqx.conf
+          env:
+            - name: MQTT_WEBHOOK_SHARED_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "device-controller.fullname" . }}-secrets
+                  key: CONTROLLER_MQTT_WEBHOOK_SHARED_SECRET
+          volumeMounts:
+            - name: config-template
+              mountPath: /config-template
+            - name: rendered-config
+              mountPath: /rendered
+      containers:
+        - name: emqx
+          image: "{{ .Values.emqx.image.repository }}:{{ .Values.emqx.image.tag }}"
+          ports:
+            - name: mqtt
+              containerPort: 1883
+            - name: dashboard
+              containerPort: 18083
+          volumeMounts:
+            - name: rendered-config
+              mountPath: /opt/emqx/etc/emqx.conf
+              subPath: emqx.conf
+            - name: data
+              mountPath: /opt/emqx/data
+          resources:
+            {{- toYaml .Values.emqx.resources | nindent 12 }}
+          readinessProbe:
+            tcpSocket: { port: mqtt }
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket: { port: mqtt }
+            periodSeconds: 10
+            failureThreshold: 6
+      volumes:
+        - name: config-template
+          configMap:
+            name: {{ include "device-controller.fullname" . }}-emqx-config
+        - name: rendered-config
+          emptyDir: {}
+        {{- if not .Values.emqx.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
+  {{- if .Values.emqx.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.emqx.persistence.storageClassName }}
+        storageClassName: {{ .Values.emqx.persistence.storageClassName }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.emqx.persistence.size }}
+  {{- end }}

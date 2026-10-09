@@ -1,0 +1,40 @@
+# Staging overrides (EKS). Images come from ECR (tag is the immutable digest
+# injected by the CI pipeline — see .github/workflows and docs/cicd.md, Phase
+# 7). Postgres is external (RDS, provisioned by Terraform in Phase 6); secrets
+# come from AWS Secrets Manager via External Secrets, not from this file.
+controller:
+  image:
+    repository: "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/device-controller"
+    tag: "" # set by CI to the image digest at deploy time
+  replicaCount: 2
+  autoscaling:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 4
+  ingress:
+    enabled: true
+    className: "alb"
+    host: "controller.staging.example.com"
+    tls: true
+  env:
+    environment: staging
+  secrets:
+    useExternalSecrets: true
+  externalSecrets:
+    secretStoreRef: "aws-secrets-manager"
+    remoteRefPrefix: "device-controller/staging"
+
+emqx:
+  # Stays at 1: this chart does not yet wire up EMQX's DNS-based cluster
+  # discovery (would need a headless Service + cluster.discovery_strategy=dns
+  # config), so a replicaCount > 1 here would silently give you N independent
+  # brokers with split device sessions, not a cluster. Tracked as a Phase 9
+  # hardening item in docs/operations.md — do not raise this until that is
+  # implemented and tested.
+  replicaCount: 1
+  persistence:
+    size: 5Gi
+    storageClassName: "gp3"
+
+postgres:
+  enabled: false

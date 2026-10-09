@@ -1,0 +1,23 @@
+# Headless (clusterIP: None) because EMQX is a StatefulSet and devices need a
+# stable MQTT endpoint. clientPort is exposed via this Service for both the
+# controller's own MQTT client and (through an Ingress/NLB in staging/prod,
+# not included here — MQTT is not HTTP, so it needs a TCP listener, see
+# docs/architecture.md section C.8) external devices.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "device-controller.fullname" . }}-emqx
+  namespace: {{ include "device-controller.namespace" . }}
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "device-controller.emqxSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: mqtt
+      port: 1883
+      targetPort: mqtt
+    - name: dashboard
+      port: 18083
+      targetPort: dashboard

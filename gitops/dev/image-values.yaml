@@ -1,0 +1,12 @@
+# Updated by .github/workflows/build-scan-push.yml after every successful
+# build on main — this file, not a human, is the thing that changes here.
+# Argo CD watches this path and syncs automatically on change.
+#
+# repository is the SAME single ECR repo used by staging/prod's
+# image-values.yaml too (see infrastructure/terraform/bootstrap) — only
+# `digest` ever differs as the one built image is promoted through
+# environments.
+controller:
+  image:
+    repository: "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/device-controller"
+    digest: ""

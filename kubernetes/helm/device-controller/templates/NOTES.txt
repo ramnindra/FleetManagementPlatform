@@ -1,0 +1,15 @@
+Device controller deployed to namespace {{ include "device-controller.namespace" . }}.
+
+Check rollout status:
+  kubectl -n {{ include "device-controller.namespace" . }} rollout status deployment/{{ include "device-controller.fullname" . }}
+
+Port-forward the API locally:
+  kubectl -n {{ include "device-controller.namespace" . }} port-forward svc/{{ include "device-controller.fullname" . }} 8000:{{ .Values.controller.service.port }}
+  curl http://localhost:8000/healthz
+
+Port-forward the EMQX dashboard:
+  kubectl -n {{ include "device-controller.namespace" . }} port-forward svc/{{ include "device-controller.fullname" . }}-emqx 18083:18083
+
+Check the migration Job:
+  kubectl -n {{ include "device-controller.namespace" . }} get jobs
+  kubectl -n {{ include "device-controller.namespace" . }} logs job/{{ include "device-controller.fullname" . }}-migrate-{{ .Release.Revision }}

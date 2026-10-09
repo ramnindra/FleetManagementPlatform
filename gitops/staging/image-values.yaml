@@ -1,0 +1,7 @@
+# Updated by .github/workflows/promote-staging.yml — the SAME digest that
+# passed dev smoke tests, never a rebuild. Argo CD watches this path.
+# repository is the same single ECR repo as gitops/dev and gitops/prod.
+controller:
+  image:
+    repository: "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/device-controller"
+    digest: ""

@@ -1,0 +1,104 @@
+{
+  "title": "Device Controller",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Devices Online",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+      "targets": [{ "expr": "controller_devices_online", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" } }, "overrides": [] }
+    },
+    {
+      "id": 2,
+      "title": "Devices Offline",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 6, "y": 0 },
+      "targets": [{ "expr": "controller_devices_offline", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" } }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "title": "Fleet Online %",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "100 * controller_devices_online / (controller_devices_online + controller_devices_offline)",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "color": { "mode": "thresholds" } }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "title": "Command Ack Success vs Failed (rate)",
+      "type": "stat",
+      "gridPos": { "h": 6, "w": 6, "x": 18, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(controller_command_acks_received_total{status=\"failed\"}[5m])) / sum(rate(controller_command_acks_received_total[5m]))",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percentunit", "color": { "mode": "thresholds" } }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "title": "Heartbeat Rate (per device)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 6 },
+      "targets": [{ "expr": "sum(rate(controller_heartbeats_received_total[1m])) by (device_id)", "refId": "A" }]
+    },
+    {
+      "id": 6,
+      "title": "Commands Published / Acked (rate)",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 6 },
+      "targets": [
+        { "expr": "sum(rate(controller_commands_published_total[1m]))", "legendFormat": "published", "refId": "A" },
+        {
+          "expr": "sum(rate(controller_command_acks_received_total[1m])) by (status)",
+          "legendFormat": "acked ({{status}})",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "API Latency p50 / p95 by route",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 14 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.5, sum(rate(controller_http_request_duration_seconds_bucket[5m])) by (le, path))",
+          "legendFormat": "p50 {{path}}",
+          "refId": "A"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(controller_http_request_duration_seconds_bucket[5m])) by (le, path))",
+          "legendFormat": "p95 {{path}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "title": "API Request Rate by Status Code",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 14 },
+      "targets": [
+        {
+          "expr": "sum(rate(controller_http_request_duration_seconds_count[1m])) by (status_code)",
+          "legendFormat": "{{status_code}}",
+          "refId": "A"
+        }
+      ]
+    }
+  ]
+}

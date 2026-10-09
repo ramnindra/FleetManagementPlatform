@@ -1,0 +1,37 @@
+# Runs `controller migrate` using the same controller image, so the schema
+# migration is applied before (and distinct from) the controller app itself
+# rolling out. Hooked as post-install,pre-upgrade rather than
+# pre-install,pre-upgrade deliberately: a pre-install hook fires before ANY
+# other resource in the release exists, including the Secret this Job needs
+# for CONTROLLER_DATABASE_URL — post-install guarantees the Secret/ConfigMap
+# are already created, and pre-upgrade covers every later deploy (where the
+# Secret already exists from the prior release).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "device-controller.fullname" . }}-migrate-{{ .Release.Revision }}
+  namespace: {{ include "device-controller.namespace" . }}
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": post-install,pre-upgrade
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        {{- include "device-controller.labels" . | nindent 8 }}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: migrate
+          image: "{{ include "device-controller.image" . }}"
+          imagePullPolicy: {{ .Values.controller.image.pullPolicy }}
+          command: ["/controller", "migrate"]
+          envFrom:
+            - configMapRef:
+                name: {{ include "device-controller.fullname" . }}-config
+            - secretRef:
+                name: {{ include "device-controller.fullname" . }}-secrets

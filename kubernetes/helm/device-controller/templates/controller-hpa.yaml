@@ -1,0 +1,27 @@
+{{- if .Values.controller.autoscaling.enabled }}
+# Scales pod COUNT on CPU. This is Kubernetes autoscaling, distinct from
+# application-level scaling: it does not know or care about MQTT connection
+# counts — EMQX, not the controller, holds the device connections, so adding
+# controller replicas scales command/API throughput, not connection capacity.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "device-controller.fullname" . }}
+  namespace: {{ include "device-controller.namespace" . }}
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "device-controller.fullname" . }}
+  minReplicas: {{ .Values.controller.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.controller.autoscaling.maxReplicas }}
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.controller.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}

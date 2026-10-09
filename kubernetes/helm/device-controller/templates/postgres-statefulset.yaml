@@ -1,0 +1,77 @@
+{{- if .Values.postgres.enabled }}
+# Local/dev convenience only — staging/prod set postgres.enabled: false and
+# point controller.secrets (via ExternalSecret) at an RDS instance created by
+# Terraform instead (infrastructure/terraform, Phase 6). Never used in a real
+# environment: no backups, no Multi-AZ, single replica.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "device-controller.fullname" . }}-postgres
+  namespace: {{ include "device-controller.namespace" . }}
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+    {{- include "device-controller.postgresSelectorLabels" . | nindent 4 }}
+spec:
+  serviceName: {{ include "device-controller.fullname" . }}-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "device-controller.postgresSelectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "device-controller.labels" . | nindent 8 }}
+        {{- include "device-controller.postgresSelectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: postgres
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.user | quote }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.postgres.password | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+              subPath: pgdata # avoids postgres's "lost+found exists" initdb complaint on some CSIs
+          resources:
+            {{- toYaml .Values.postgres.resources | nindent 12 }}
+          readinessProbe:
+            exec: { command: ["pg_isready", "-U", {{ .Values.postgres.user | quote }}] }
+            periodSeconds: 5
+          livenessProbe:
+            exec: { command: ["pg_isready", "-U", {{ .Values.postgres.user | quote }}] }
+            periodSeconds: 10
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.postgres.persistence.storageClassName }}
+        storageClassName: {{ .Values.postgres.persistence.storageClassName }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgres.persistence.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "device-controller.fullname" . }}-postgres
+  namespace: {{ include "device-controller.namespace" . }}
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "device-controller.postgresSelectorLabels" . | nindent 4 }}
+  ports:
+    - name: postgres
+      port: 5432
+{{- end }}

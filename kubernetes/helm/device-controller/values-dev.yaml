@@ -1,0 +1,22 @@
+# Local kind/minikube overrides. Images are built locally and loaded into
+# the cluster with `kind load docker-image` (see docs/deployment.md) rather
+# than pulled from a registry — hence pullPolicy stays IfNotPresent and the
+# repository/tag match whatever `make k8s-deploy` builds.
+controller:
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  ingress:
+    enabled: false
+  env:
+    environment: development
+
+emqx:
+  replicaCount: 1
+  persistence:
+    size: 500Mi
+
+postgres:
+  enabled: true
+  persistence:
+    size: 500Mi

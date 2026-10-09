@@ -1,0 +1,35 @@
+{{- if .Values.controller.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "device-controller.fullname" . }}
+  namespace: {{ include "device-controller.namespace" . }}
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+  annotations:
+    {{- if eq .Values.controller.ingress.className "alb" }}
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTP": 80}, {"HTTPS":443}]'
+    alb.ingress.kubernetes.io/ssl-redirect: "443"
+    {{- end }}
+spec:
+  {{- if .Values.controller.ingress.className }}
+  ingressClassName: {{ .Values.controller.ingress.className }}
+  {{- end }}
+  {{- if .Values.controller.ingress.tls }}
+  tls:
+    - hosts: [{{ .Values.controller.ingress.host }}]
+  {{- end }}
+  rules:
+    - host: {{ .Values.controller.ingress.host }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "device-controller.fullname" . }}
+                port:
+                  number: {{ .Values.controller.service.port }}
+{{- end }}

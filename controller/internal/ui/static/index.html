@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Device Controller</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --text: #1c2330; --muted: #6b7587; --border: #dde1e8;
+    --accent: #2457d6; --ok: #1a8f4c; --bad: #c0392b; --warn: #b7791f; --code: #f0f2f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f131a; --panel: #181e28; --text: #e6e9ef; --muted: #8b95a7; --border: #2a3342;
+            --accent: #6d95ff; --ok: #3ecf7a; --bad: #ff7b6b; --warn: #e0b04a; --code: #11161e; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+           display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 16px; margin: 0; }
+  header .spacer { flex: 1; }
+  #conn { font-size: 12px; color: var(--muted); }
+  main { display: grid; grid-template-columns: 300px 1fr; gap: 16px; padding: 16px; align-items: start; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  section { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 8px; }
+  input, select, textarea, button { font: inherit; color: inherit; }
+  input[type=search], select, textarea { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; }
+  input[type=search] { width: 100%; margin-bottom: 8px; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 6px; padding: 7px 14px; cursor: pointer; }
+  button:disabled { opacity: .5; cursor: default; }
+  ul#devices { list-style: none; margin: 0; padding: 0; max-height: 70vh; overflow: auto; }
+  ul#devices li { padding: 8px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+  ul#devices li:hover { background: var(--bg); }
+  ul#devices li.sel { background: var(--bg); outline: 1px solid var(--accent); }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.on { background: var(--ok); } .dot.off { background: var(--bad); }
+  .sub { color: var(--muted); font-size: 12px; }
+  .stack > * + * { margin-top: 16px; }
+  .row { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+  textarea { width: 100%; min-height: 54px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 500; padding: 4px 6px; }
+  td { padding: 5px 6px; border-top: 1px solid var(--border); vertical-align: top; }
+  pre { margin: 0; background: var(--code); border-radius: 6px; padding: 6px 8px; font-size: 12px;
+        white-space: pre-wrap; word-break: break-word; max-height: 140px; overflow: auto; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: var(--code); }
+  .badge.success, .badge.active, .badge.heartbeat { color: var(--ok); }
+  .badge.failed, .badge.expired, .badge.revoked { color: var(--bad); }
+  .badge.pending, .badge.delivered, .badge.pending_enrollment, .badge.ack { color: var(--warn); }
+  .badge.telemetry { color: var(--accent); }
+  #msg-feed { max-height: 360px; overflow: auto; }
+  .empty { color: var(--muted); padding: 8px 0; }
+  .err { color: var(--bad); font-size: 13px; margin-top: 6px; min-height: 1em; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Device Controller</h1>
+  <span class="spacer"></span>
+  <span id="conn">connecting…</span>
+</header>
+<main>
+  <section>
+    <h2>Devices <span id="count" class="sub"></span></h2>
+    <input type="search" id="filter" placeholder="Filter by id or type">
+    <ul id="devices"></ul>
+  </section>
+
+  <div id="detail" class="stack">
+    <section><div class="empty">Select a device on the left.</div></section>
+  </div>
+</main>
+
+<script>
+const OFFLINE_AFTER_S = 90;  // matches controller default offline_threshold_seconds
+const POLL_MS = 3000;
+let devices = [], selected = null, lastMsgId = 0, messages = [], filterText = "";
+
+const $ = (id) => document.getElementById(id);
+// All dynamic text goes through textContent / el(): device ids, payloads and
+// results come from devices and must never be interpreted as HTML.
+function el(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") e.className = v; else if (k === "text") e.textContent = v; else e[k] = v;
+  }
+  for (const kid of kids) e.append(kid);
+  return e;
+}
+const badge = (s) => el("span", { class: "badge " + s, text: s });
+const json = (o) => JSON.stringify(o, null, 2);
+const fmt = (iso) => iso ? new Date(iso).toLocaleTimeString() : "—";
+function ago(iso) {
+  if (!iso) return "never seen";
+  const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+  return s < 60 ? Math.round(s) + "s ago" : s < 3600 ? Math.round(s / 60) + "m ago" : Math.round(s / 3600) + "h ago";
+}
+const isOnline = (d) => d.last_seen_at && (Date.now() - new Date(d.last_seen_at)) / 1000 < OFFLINE_AFTER_S;
+
+async function api(path, opts) {
+  const r = await fetch("/api/v1" + path, opts);
+  if (!r.ok) {
+    let detail = r.statusText;
+    try { const b = await r.json(); detail = typeof b.detail === "string" ? b.detail : JSON.stringify(b.detail); } catch {}
+    throw new Error(r.status + " " + detail);
+  }
+  return r.json();
+}
+
+function renderDevices() {
+  const q = filterText.toLowerCase();
+  const shown = devices.filter((d) => !q || d.device_id.toLowerCase().includes(q) || d.device_type.includes(q));
+  $("count").textContent = `(${devices.filter(isOnline).length} online / ${devices.length})`;
+  const ul = $("devices");
+  ul.replaceChildren(...shown.map((d) => {
+    const li = el("li", { class: d.device_id === selected ? "sel" : "" },
+      el("span", { class: "dot " + (isOnline(d) ? "on" : "off") }),
+      el("div", {}, el("div", { text: d.device_id }), el("div", { class: "sub", text: `${d.device_type} · ${ago(d.last_seen_at)}` })));
+    li.onclick = () => selectDevice(d.device_id);
+    return li;
+  }));
+  if (!shown.length) ul.append(el("li", { class: "empty", text: "No devices" }));
+}
+
+function buildDetail() {
+  const d = devices.find((x) => x.device_id === selected);
+  const detail = $("detail");
+  if (!d) { detail.replaceChildren(el("section", {}, el("div", { class: "empty", text: "Select a device on the left." }))); return; }
+
+  const action = el("select", { id: "action" }, ...["ping", "get_status", "get_system_info", "update_config"].map((a) => el("option", { value: a, text: a })));
+  const params = el("textarea", { id: "params", placeholder: '{"heartbeat_interval_seconds": 10}   (optional JSON params)' });
+  const send = el("button", { id: "send", text: "Send command" });
+  const err = el("div", { class: "err", id: "send-err" });
+  send.onclick = async () => {
+    err.textContent = "";
+    let p = {};
+    if (params.value.trim()) { try { p = JSON.parse(params.value); } catch { err.textContent = "Params must be valid JSON."; return; } }
+    send.disabled = true;
+    try {
+      await api(`/devices/${encodeURIComponent(selected)}/commands`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: action.value, params: p }),
+      });
+      await refreshSelected();
+    } catch (e) { err.textContent = e.message; } finally { send.disabled = false; }
+  };
+
+  detail.replaceChildren(
+    el("section", {},
+      el("h2", { text: "Device" }),
+      el("div", { class: "row" },
+        el("strong", { text: d.device_id }), badge(d.device_type), badge(d.status),
+        el("span", { class: "sub", id: "seen" })),
+      el("pre", { id: "attrs" })),
+    el("section", {}, el("h2", { text: "Send command" }),
+      el("div", { class: "row" }, action, send), el("div", { class: "sub", text: "Params (JSON)" }), params, err),
+    el("section", {}, el("h2", { text: "Commands & responses" }), el("div", { id: "cmds" })),
+    el("section", {}, el("h2", { text: "Messages from device" }), el("div", { id: "msg-feed" })));
+  messages = []; lastMsgId = 0;
+}
+
+function renderDeviceMeta() {
+  const d = devices.find((x) => x.device_id === selected);
+  if (!d || !$("seen")) return;
+  $("seen").textContent = (isOnline(d) ? "online" : "offline") + " · last seen " + ago(d.last_seen_at);
+  $("attrs").textContent = json(d.attributes);
+}
+
+function renderCommands(cmds) {
+  const box = $("cmds"); if (!box) return;
+  if (!cmds.length) { box.replaceChildren(el("div", { class: "empty", text: "No commands sent yet." })); return; }
+  const rows = cmds.map((c) => el("tr", {},
+    el("td", { text: fmt(c.created_at) }), el("td", { text: c.action }), el("td", {}, badge(c.status)),
+    el("td", {}, c.result ? el("pre", { text: json(c.result) }) : el("span", { class: "sub", text: "—" }))));
+  box.replaceChildren(el("table", {},
+    el("thead", {}, el("tr", {}, ...["Time", "Action", "Status", "Response"].map((h) => el("th", { text: h })))),
+    el("tbody", {}, ...rows)));
+}
+
+function renderMessages() {
+  const box = $("msg-feed"); if (!box) return;
+  if (!messages.length) { box.replaceChildren(el("div", { class: "empty", text: "No messages received yet (devices send one every ~30s)." })); return; }
+  box.replaceChildren(el("table", {},
+    el("thead", {}, el("tr", {}, ...["Time", "Type", "Payload"].map((h) => el("th", { text: h })))),
+    el("tbody", {}, ...messages.map((m) => el("tr", {},
+      el("td", { text: fmt(m.received_at) }), el("td", {}, badge(m.kind)), el("td", {}, el("pre", { text: json(m.payload) })))))));
+}
+
+async function refreshSelected() {
+  if (!selected) return;
+  const id = encodeURIComponent(selected);
+  const [cmds, fresh] = await Promise.all([
+    api(`/devices/${id}/commands?limit=20`),
+    api(`/devices/${id}/messages?limit=100&after_id=${lastMsgId}`),
+  ]);
+  if (fresh.length) {
+    lastMsgId = fresh[0].id;  // newest first
+    messages = fresh.concat(messages).slice(0, 100);
+  }
+  renderCommands(cmds); renderMessages(); renderDeviceMeta();
+}
+
+function selectDevice(id) {
+  selected = id; buildDetail(); renderDevices(); renderDeviceMeta();
+  refreshSelected().catch(() => {});
+}
+
+async function tick() {
+  try {
+    devices = await api("/devices?limit=200");
+    $("conn").textContent = "live · updated " + new Date().toLocaleTimeString();
+    renderDevices(); renderDeviceMeta();
+    await refreshSelected();
+  } catch (e) { $("conn").textContent = "error: " + e.message; }
+}
+
+$("filter").oninput = (e) => { filterText = e.target.value; renderDevices(); };
+tick(); setInterval(tick, POLL_MS);
+</script>
+</body>
+</html>

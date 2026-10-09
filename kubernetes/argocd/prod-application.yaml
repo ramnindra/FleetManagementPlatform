@@ -1,0 +1,33 @@
+# Auto-sync is kept on here too — the manual gate for prod is the GitHub
+# Environment approval in promote-prod.yml, not a second manual Argo CD sync.
+# A stricter alternative some teams prefer is disabling `automated` here so
+# promotion stops at "gitops/prod is updated" and a human runs
+# `argocd app sync device-controller-prod` as a deliberate last step; not
+# done here to keep one approval gate, not two, for one engineer to operate.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: device-controller-prod
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    - repoURL: https://github.com/REPLACE_ME/cloud-device-controller.git
+      targetRevision: main
+      path: kubernetes/helm/device-controller
+      helm:
+        valueFiles:
+          - values-prod.yaml
+          - $values/gitops/prod/image-values.yaml
+    - repoURL: https://github.com/REPLACE_ME/cloud-device-controller.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: device-controller
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=false

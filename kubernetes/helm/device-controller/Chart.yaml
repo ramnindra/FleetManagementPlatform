@@ -1,0 +1,6 @@
+apiVersion: v2
+name: device-controller
+description: Cloud device controller + EMQX broker (+ optional in-cluster Postgres for local/dev)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

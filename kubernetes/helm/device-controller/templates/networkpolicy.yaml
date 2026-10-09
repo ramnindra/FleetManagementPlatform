@@ -1,0 +1,70 @@
+{{- if .Values.networkPolicy.enabled }}
+# Default-deny plus explicit allows: the controller may only be reached on
+# its HTTP port (from anywhere in-cluster, e.g. an Ingress controller — a
+# full mesh is fine at this scale, tightening to "from Ingress namespace
+# only" is a straightforward follow-up once a specific ingress controller is
+# chosen in Phase 6/7) and may only initiate egress to EMQX, Postgres, DNS,
+# and HTTPS (for AWS API calls — Secrets Manager, etc. in staging/prod).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "device-controller.fullname" . }}-controller
+  namespace: {{ include "device-controller.namespace" . }}
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "device-controller.controllerSelectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - from: [] # same-namespace + ingress controller traffic; see comment above
+      ports:
+        - port: {{ .Values.controller.containerPort }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "device-controller.emqxSelectorLabels" . | nindent 14 }}
+      ports: [{ port: 1883 }]
+    {{- if .Values.postgres.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "device-controller.postgresSelectorLabels" . | nindent 14 }}
+      ports: [{ port: 5432 }]
+    {{- end }}
+    - ports: # DNS
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+    - ports: # HTTPS egress (RDS over TLS in staging/prod listens elsewhere; this
+             # covers AWS API calls — Secrets Manager, STS — plus the RDS port
+             # itself when postgres.enabled is false)
+        - { port: 443, protocol: TCP }
+        - { port: 5432, protocol: TCP }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "device-controller.fullname" . }}-emqx
+  namespace: {{ include "device-controller.namespace" . }}
+  labels:
+    {{- include "device-controller.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "device-controller.emqxSelectorLabels" . | nindent 6 }}
+  policyTypes: ["Ingress", "Egress"]
+  ingress:
+    - {} # devices need to reach 1883 from outside the cluster via a TCP
+         # listener/NLB (see docs/architecture.md C.8) — not restricted here
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "device-controller.controllerSelectorLabels" . | nindent 14 }}
+      ports: [{ port: {{ .Values.controller.containerPort }} }]
+    - ports:
+        - { port: 53, protocol: UDP }
+        - { port: 53, protocol: TCP }
+{{- end }}
