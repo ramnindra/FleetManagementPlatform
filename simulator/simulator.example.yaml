@@ -1,0 +1,20 @@
+# Example simulator config. Every key is optional; command-line flags override
+# these values.   simulator --config simulator.example.yaml --count 5
+#
+# Point it at the cluster. "cluster" sets both the REST endpoint (port 8000
+# unless given) and the MQTT broker host; set api_endpoint / mqtt_host to
+# override either one separately.
+cluster: localhost          # e.g. 10.0.0.5, controller.example.com:8000, http://localhost:8000
+mqtt_port: 1883
+admin_api_key: dev-admin-key
+
+# How many simulated nodes, and of which type (switch | gpu | edge).
+count: 10
+device_type: edge
+# Or a mix (overrides count / device_type):
+# device_types: {switch: 5, gpu: 3, edge: 2}
+
+heartbeat_interval: 10s
+duration: 0s                # 0 = run until Ctrl-C
+provision_workers: 50
+connect_wait: 10s

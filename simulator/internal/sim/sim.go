@@ -52,12 +52,25 @@ type Config struct {
 	MQTTPort          int
 	AdminAPIKey       string
 	HeartbeatInterval time.Duration
-	DeviceType        string
+	DeviceType        string // default type for devices created with NewDevice callers that pass none
 	RunID             string
 	// ConnectWait is how long each device waits for its own connect callback
 	// before giving up. At 1,000 devices this also measures the simulator's
 	// own scheduling, not just the broker/controller (docs/load-test-report.md).
 	ConnectWait time.Duration
+	// OnCommand, if set, is called for every instruction a device receives
+	// from the controller (e.g. sent from the web UI) after it has been handled.
+	OnCommand func(CommandEvent)
+}
+
+// CommandEvent describes one instruction received by a simulated device.
+type CommandEvent struct {
+	DeviceID  string
+	CommandID string
+	Action    string
+	Params    map[string]any
+	Status    string
+	Result    map[string]any
 }
 
 func NewRunID() string { return fmt.Sprintf("%d-%d", time.Now().Unix(), 1000+rand.IntN(9000)) }
@@ -66,6 +79,8 @@ var httpClient = &http.Client{Timeout: 10 * time.Second}
 
 type Device struct {
 	ID         string
+	Type       string
+	interval   atomic.Int64 // heartbeat interval in nanoseconds; update_config can change it
 	cfg        Config
 	metrics    *Metrics
 	credential string
@@ -77,8 +92,10 @@ type Device struct {
 	up        bool
 }
 
-func NewDevice(index int, cfg Config, m *Metrics) *Device {
-	return &Device{ID: fmt.Sprintf("%s-sim-%s-%05d", cfg.DeviceType, cfg.RunID, index), cfg: cfg, metrics: m}
+func NewDevice(index int, deviceType string, cfg Config, m *Metrics) *Device {
+	d := &Device{ID: fmt.Sprintf("%s-sim-%s-%05d", deviceType, cfg.RunID, index), Type: deviceType, cfg: cfg, metrics: m}
+	d.interval.Store(int64(cfg.HeartbeatInterval))
+	return d
 }
 
 func postJSON(url string, headers map[string]string, body any, out any) error {
@@ -107,7 +124,7 @@ func (d *Device) Provision() bool {
 	}
 	err := postJSON(d.cfg.APIEndpoint+"/api/v1/devices/register",
 		map[string]string{"X-Api-Key": d.cfg.AdminAPIKey},
-		map[string]string{"device_id": d.ID, "device_type": d.cfg.DeviceType}, &reg)
+		map[string]string{"device_id": d.ID, "device_type": d.Type}, &reg)
 	var enr struct {
 		DeviceCredential string `json:"device_credential"`
 	}
@@ -180,11 +197,43 @@ func (d *Device) onMessage(c paho.Client, msg paho.Message) {
 		return
 	}
 	d.metrics.CommandsReceived.Add(1)
-	ack, _ := json.Marshal(map[string]any{
-		"command_id": payload["command_id"], "status": "success", "result": map[string]any{"simulated": true},
-	})
+	commandID, _ := payload["command_id"].(string)
+	action, _ := payload["action"].(string)
+	params, _ := payload["params"].(map[string]any)
+
+	status, result := d.execute(action, params)
+	ack, _ := json.Marshal(map[string]any{"command_id": commandID, "status": status, "result": result})
 	c.Publish(fmt.Sprintf("devices/%s/cmd/ack", d.ID), 1, false, ack)
 	d.metrics.CommandsAcked.Add(1)
+
+	if d.cfg.OnCommand != nil {
+		d.cfg.OnCommand(CommandEvent{d.ID, commandID, action, params, status, result})
+	}
+}
+
+// execute mirrors the real device-agent's allowlist, with simulated data.
+func (d *Device) execute(action string, params map[string]any) (string, map[string]any) {
+	switch action {
+	case "ping":
+		return "success", map[string]any{"pong": true, "echo": params["echo"], "simulated": true}
+	case "get_status":
+		return "success", map[string]any{"status": "healthy", "device_id": d.ID, "device_type": d.Type, "simulated": true}
+	case "get_system_info":
+		return "success", map[string]any{"hostname": d.ID, "platform": "simulated", "device_type": d.Type, "simulated": true}
+	case "update_config":
+		applied, rejected := map[string]any{}, []string{}
+		for k, v := range params {
+			n, ok := v.(float64)
+			if k != "heartbeat_interval_seconds" || !ok || n != float64(int(n)) || n < 5 || n > 3600 {
+				rejected = append(rejected, k)
+				continue
+			}
+			d.interval.Store(int64(time.Duration(n) * time.Second))
+			applied[k] = int(n)
+		}
+		return "success", map[string]any{"applied": applied, "rejected": rejected, "simulated": true}
+	}
+	return "failed", map[string]any{"error": fmt.Sprintf("action '%s' is not in the allowlist", action), "simulated": true}
 }
 
 func (d *Device) SendHeartbeat() {
@@ -209,18 +258,21 @@ func (d *Device) Disconnect() {
 	}
 }
 
-// HeartbeatLoop runs until stop is closed.
+func (d *Device) HeartbeatInterval() time.Duration { return time.Duration(d.interval.Load()) }
+
+// HeartbeatLoop runs until stop is closed. The interval is re-read each cycle
+// so an update_config instruction takes effect immediately.
 func (d *Device) HeartbeatLoop(stop <-chan struct{}) {
 	// Jitter avoids every device heartbeating in the same instant.
 	select {
-	case <-time.After(time.Duration(rand.Float64() * float64(d.cfg.HeartbeatInterval))):
+	case <-time.After(time.Duration(rand.Float64() * float64(d.HeartbeatInterval()))):
 	case <-stop:
 		return
 	}
 	for {
 		d.SendHeartbeat()
 		select {
-		case <-time.After(d.cfg.HeartbeatInterval):
+		case <-time.After(d.HeartbeatInterval()):
 		case <-stop:
 			return
 		}

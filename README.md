@@ -107,3 +107,22 @@ See `docs/roadmap.md` for the full layout and phase-by-phase plan.
 
 All covered with trade-off tables and (for the bcrypt question) real load-test
 data in `docs/architecture.md` section B and `docs/load-test-report.md`.
+
+## Simulator on a Kubernetes cluster (nodes appear in the web UI)
+
+```bash
+scripts/k8s-up.sh --fresh                  # kind cluster + controller/EMQX/Postgres, zero devices
+open http://localhost:8000/ui/             # empty device list
+
+scripts/simulate.sh --count 5              # nodes appear in the UI; instructions print here
+scripts/simulate.sh --config simulator/simulator.example.yaml --count 3
+scripts/simulate.sh --cluster 10.0.0.5 --device-type gpu --count 20
+```
+
+Pick a node in the UI, send a command (`ping`, `get_status`, `get_system_info`,
+`update_config`), and the simulator prints each instruction (`← INSTRUCTION`)
+and the result it returned. `update_config` with `heartbeat_interval_seconds`
+changes that node's heartbeat rate live. Parameters (cluster address, node
+count, device types/mix, heartbeat interval, duration, ...) can be given as
+flags or in a YAML config file; flags override the file. `scripts/k8s-fleet.sh 50`
+deploys and loads 50 devices with a report; `scripts/k8s-up.sh down` removes the cluster.

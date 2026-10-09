@@ -1,4 +1,4 @@
-.PHONY: demo provision setup build test local-up local-down simulate load-test logs k8s-deploy k8s-test k8s-down monitoring-up monitoring-down
+.PHONY: k8s-up k8s-fleet demo provision setup build test local-up local-down simulate load-test logs k8s-deploy k8s-test k8s-down monitoring-up monitoring-down
 
 setup:
 	cd controller && go mod download
@@ -44,8 +44,13 @@ provision:
 	./scripts/provision.sh
 
 simulate:
-	cd simulator && go run ./cmd/simulator --count 10 --duration 60s \
-		--api-endpoint http://localhost:8000 --mqtt-host localhost --admin-api-key dev-admin-key
+	./scripts/simulate.sh --count $${COUNT:-10}
+
+k8s-up:
+	./scripts/k8s-up.sh --fresh
+
+k8s-fleet:
+	./scripts/k8s-fleet.sh $${COUNT:-50}
 
 load-test:
 	cd simulator && go run ./cmd/load-test --count $${COUNT:-100} \

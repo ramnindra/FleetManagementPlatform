@@ -106,7 +106,7 @@ func main() {
 	metrics := &sim.Metrics{}
 	devices := make([]*sim.Device, *count)
 	for i := range devices {
-		devices[i] = sim.NewDevice(i, cfg, metrics)
+		devices[i] = sim.NewDevice(i, cfg.DeviceType, cfg, metrics)
 	}
 	report := map[string]any{
 		"run_id": cfg.RunID, "started_at": time.Now().UTC().Format(time.RFC3339),
