@@ -32,6 +32,8 @@ system end to end.
 make setup      # downloads Go modules for all services and tools
 make test       # runs controller + device-agent Go test suites
 make local-up   # docker compose up: postgres + emqx + controller
+make demo       # provisions devices, starts real agents, sends commands, shows results
+make provision  # register the example inventory and render enrollment bundles
 make simulate   # spins up 10 simulated devices for 60s
 make local-down # tears the stack down
 ```

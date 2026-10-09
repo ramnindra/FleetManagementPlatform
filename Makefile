@@ -1,4 +1,4 @@
-.PHONY: setup build test local-up local-down simulate load-test logs k8s-deploy k8s-test k8s-down monitoring-up monitoring-down
+.PHONY: demo provision setup build test local-up local-down simulate load-test logs k8s-deploy k8s-test k8s-down monitoring-up monitoring-down
 
 setup:
 	cd controller && go mod download
@@ -36,6 +36,12 @@ local-down:
 
 logs:
 	docker compose logs -f
+
+demo:
+	./scripts/demo.sh
+
+provision:
+	./scripts/provision.sh
 
 simulate:
 	cd simulator && go run ./cmd/simulator --count 10 --duration 60s \
