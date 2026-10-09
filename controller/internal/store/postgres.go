@@ -230,8 +230,15 @@ func (p *Postgres) GetCommand(ctx context.Context, id string) (*model.Command, e
 }
 
 func (p *Postgres) ListCommands(ctx context.Context, deviceID string, limit int) ([]model.Command, error) {
-	rows, err := p.pool.Query(ctx,
-		`SELECT `+commandCols+` FROM commands WHERE device_id=$1 ORDER BY created_at DESC LIMIT $2`, deviceID, limit)
+	return p.queryCommands(ctx, `SELECT `+commandCols+` FROM commands WHERE device_id=$1 ORDER BY created_at DESC LIMIT $2`, deviceID, limit)
+}
+
+func (p *Postgres) ListRecentCommands(ctx context.Context, limit int) ([]model.Command, error) {
+	return p.queryCommands(ctx, `SELECT `+commandCols+` FROM commands ORDER BY created_at DESC LIMIT $1`, limit)
+}
+
+func (p *Postgres) queryCommands(ctx context.Context, sql string, args ...any) ([]model.Command, error) {
+	rows, err := p.pool.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}

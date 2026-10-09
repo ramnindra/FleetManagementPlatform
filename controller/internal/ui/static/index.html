@@ -127,7 +127,12 @@ function renderDevices() {
 function buildDetail() {
   const d = devices.find((x) => x.device_id === selected);
   const detail = $("detail");
-  if (!d) { detail.replaceChildren(el("section", {}, el("div", { class: "empty", text: "Select a device on the left." }))); return; }
+  if (!d) {
+    detail.replaceChildren(el("section", {}, el("h2", { text: "Fleet activity — latest instructions" }),
+      el("div", { class: "sub", text: "Select a device on the left to send it an instruction." }), el("div", { id: "fleet-activity" })));
+    renderFleetActivity().catch(() => {});
+    return;
+  }
 
   const action = el("select", { id: "action" }, ...["ping", "get_status", "get_system_info", "update_config"].map((a) => el("option", { value: a, text: a })));
   const params = el("textarea", { id: "params", placeholder: '{"heartbeat_interval_seconds": 10}   (optional JSON params)' });
@@ -150,6 +155,7 @@ function buildDetail() {
   detail.replaceChildren(
     el("section", {},
       el("h2", { text: "Device" }),
+      (() => { const b = el("a", { href: "#", text: "← fleet activity" }); b.onclick = (ev) => { ev.preventDefault(); selected = null; buildDetail(); renderDevices(); }; return b; })(),
       el("div", { class: "row" },
         el("strong", { text: d.device_id }), badge(d.device_type), badge(d.status),
         el("span", { class: "sub", id: "seen" })),
@@ -168,14 +174,36 @@ function renderDeviceMeta() {
   $("attrs").textContent = json(d.attributes);
 }
 
+const hasParams = (c) => c.params && Object.keys(c.params).length > 0;
+const roundTrip = (c) => c.completed_at ? Math.round(new Date(c.completed_at) - new Date(c.created_at)) + " ms" : "—";
+
+// Fleet-wide feed of the newest instructions, shown when no device is selected.
+async function renderFleetActivity() {
+  const box = $("fleet-activity"); if (!box) return;
+  const cmds = await api("/commands?limit=50");
+  if (!cmds.length) { box.replaceChildren(el("div", { class: "empty", text: "No instructions sent yet. Pick a device and send one." })); return; }
+  box.replaceChildren(el("table", {},
+    el("thead", {}, el("tr", {}, ...["Time", "Device", "Instruction", "Params", "Status", "Round trip", "Response from device"].map((h) => el("th", { text: h })))),
+    el("tbody", {}, ...cmds.map((c) => {
+      const dev = el("a", { href: "#", text: c.device_id });
+      dev.onclick = (ev) => { ev.preventDefault(); selectDevice(c.device_id); };
+      return el("tr", {}, el("td", { text: fmt(c.created_at) }), el("td", {}, dev), el("td", { text: c.action }),
+        el("td", {}, hasParams(c) ? el("pre", { text: json(c.params) }) : el("span", { class: "sub", text: "—" })),
+        el("td", {}, badge(c.status)), el("td", { text: roundTrip(c) }),
+        el("td", {}, c.result ? el("pre", { text: json(c.result) }) : el("span", { class: "sub", text: "—" })));
+    }))));
+}
+
 function renderCommands(cmds) {
   const box = $("cmds"); if (!box) return;
   if (!cmds.length) { box.replaceChildren(el("div", { class: "empty", text: "No commands sent yet." })); return; }
   const rows = cmds.map((c) => el("tr", {},
-    el("td", { text: fmt(c.created_at) }), el("td", { text: c.action }), el("td", {}, badge(c.status)),
+    el("td", { text: fmt(c.created_at) }), el("td", { text: c.action }),
+    el("td", {}, hasParams(c) ? el("pre", { text: json(c.params) }) : el("span", { class: "sub", text: "—" })),
+    el("td", {}, badge(c.status)), el("td", { text: roundTrip(c) }),
     el("td", {}, c.result ? el("pre", { text: json(c.result) }) : el("span", { class: "sub", text: "—" }))));
   box.replaceChildren(el("table", {},
-    el("thead", {}, el("tr", {}, ...["Time", "Action", "Status", "Response"].map((h) => el("th", { text: h })))),
+    el("thead", {}, el("tr", {}, ...["Time", "Instruction", "Params", "Status", "Round trip", "Response from device"].map((h) => el("th", { text: h })))),
     el("tbody", {}, ...rows)));
 }
 
@@ -212,12 +240,12 @@ async function tick() {
     devices = await api("/devices?limit=200");
     $("conn").textContent = "live · updated " + new Date().toLocaleTimeString();
     renderDevices(); renderDeviceMeta();
-    await refreshSelected();
+    if (selected) await refreshSelected(); else await renderFleetActivity();
   } catch (e) { $("conn").textContent = "error: " + e.message; }
 }
 
 $("filter").oninput = (e) => { filterText = e.target.value; renderDevices(); };
-tick(); setInterval(tick, POLL_MS);
+buildDetail(); tick(); setInterval(tick, POLL_MS);
 </script>
 </body>
 </html>

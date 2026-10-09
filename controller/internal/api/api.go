@@ -48,6 +48,7 @@ func New(cfg config.Settings, svc *service.Service, pub Publisher, m *metrics.Me
 	mux.HandleFunc("GET /api/v1/devices/{device_id}/commands", s.listDeviceCommands)
 	mux.HandleFunc("GET /api/v1/devices/{device_id}/messages", s.listDeviceMessages)
 	mux.HandleFunc("POST /api/v1/devices/{device_id}/commands", s.createCommand)
+	mux.HandleFunc("GET /api/v1/commands", s.listRecentCommands)
 	mux.HandleFunc("GET /api/v1/commands/{command_id}", s.getCommand)
 
 	mux.HandleFunc("POST /internal/mqtt/auth", s.webhook(s.mqttAuth))
@@ -356,6 +357,16 @@ func (s *Server) createCommand(w http.ResponseWriter, r *http.Request) {
 		cmd = fresh
 	}
 	writeJSON(w, http.StatusAccepted, map[string]string{"command_id": cmd.CommandID, "device_id": deviceID, "status": cmd.Status})
+}
+
+// listRecentCommands feeds the web UI's fleet-wide instruction view.
+func (s *Server) listRecentCommands(w http.ResponseWriter, r *http.Request) {
+	cmds, err := s.svc.ListRecentCommands(r.Context(), clamp(intQuery(r, "limit", 50), 1, 200))
+	if err != nil {
+		s.internalError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, cmds)
 }
 
 func (s *Server) getCommand(w http.ResponseWriter, r *http.Request) {

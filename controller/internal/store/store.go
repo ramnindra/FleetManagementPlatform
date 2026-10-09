@@ -31,6 +31,8 @@ type Store interface {
 	CreateCommand(ctx context.Context, c *model.Command) (cmd *model.Command, created bool, err error)
 	GetCommand(ctx context.Context, id string) (*model.Command, error)
 	ListCommands(ctx context.Context, deviceID string, limit int) ([]model.Command, error)
+	// ListRecentCommands returns the newest commands across all devices.
+	ListRecentCommands(ctx context.Context, limit int) ([]model.Command, error)
 	MarkDelivered(ctx context.Context, id string, at time.Time) error
 	// ApplyAck is a no-op (applied=false) for unknown or already-terminal commands.
 	ApplyAck(ctx context.Context, id, status string, result map[string]any, at time.Time) (applied bool, err error)

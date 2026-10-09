@@ -288,3 +288,20 @@ func TestWebUIServed(t *testing.T) {
 		t.Fatalf("ui: %d", rec.Code)
 	}
 }
+
+func TestListRecentCommandsAcrossDevices(t *testing.T) {
+	e := newEnv(t)
+	e.enroll(t, "a", e.register(t, "a"))
+	e.enroll(t, "b", e.register(t, "b"))
+	e.do("POST", "/api/v1/devices/a/commands", map[string]any{"action": "ping"})
+	e.do("POST", "/api/v1/devices/b/commands", map[string]any{"action": "get_status"})
+
+	req := httptest.NewRequest("GET", "/api/v1/commands?limit=10", nil)
+	rec := httptest.NewRecorder()
+	e.h.ServeHTTP(rec, req)
+	var cmds []map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &cmds)
+	if rec.Code != 200 || len(cmds) != 2 || cmds[0]["device_id"] != "b" {
+		t.Fatalf("want 2 commands newest first, got %d %v", rec.Code, cmds)
+	}
+}

@@ -207,6 +207,10 @@ func (s *Service) ListCommands(ctx context.Context, deviceID string, limit int) 
 	return s.Store.ListCommands(ctx, deviceID, limit)
 }
 
+func (s *Service) ListRecentCommands(ctx context.Context, limit int) ([]model.Command, error) {
+	return s.Store.ListRecentCommands(ctx, limit)
+}
+
 func (s *Service) MarkDelivered(ctx context.Context, id string) error {
 	return s.Store.MarkDelivered(ctx, id, time.Now().UTC())
 }

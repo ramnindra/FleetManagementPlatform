@@ -143,6 +143,20 @@ func (m *Memory) ListCommands(_ context.Context, deviceID string, limit int) ([]
 	return out, nil
 }
 
+func (m *Memory) ListRecentCommands(_ context.Context, limit int) ([]model.Command, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]model.Command, 0, len(m.commands))
+	for _, c := range m.commands {
+		out = append(out, *c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	if limit < len(out) {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 func (m *Memory) MarkDelivered(_ context.Context, id string, at time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
