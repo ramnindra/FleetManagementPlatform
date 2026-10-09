@@ -1,0 +1,32 @@
+# Simulated fleet for testing. Install into the same namespace as the
+# device-controller release so the short service names below resolve.
+
+image:
+  repository: cloud-device-controller-simulator
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Where the controller and broker are reachable from inside the cluster.
+controller:
+  apiEndpoint: "http://device-controller:8000"
+  mqttHost: "device-controller-emqx"
+  mqttPort: 1883
+  # Dev default only; for anything real, reference an existing Secret instead.
+  adminApiKey: "dev-admin-key"
+  existingAdminKeySecret: ""   # name of a Secret holding key "admin-api-key"
+
+# Rendered into the simulator's YAML config (see simulator/simulator.example.yaml).
+simulator:
+  count: 10
+  deviceType: edge
+  deviceTypes: {}              # e.g. { switch: 5, gpu: 3, edge: 2 } overrides count/deviceType
+  heartbeatInterval: 10s
+  duration: 0s                 # 0 = run until the pod is stopped
+  failureRate: 0
+  ackDelay: 0s
+  churnInterval: 0s
+  churnDowntime: 10s
+
+resources:
+  requests: { cpu: 50m, memory: 64Mi }
+  limits: { cpu: 500m, memory: 256Mi }

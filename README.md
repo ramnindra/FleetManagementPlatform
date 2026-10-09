@@ -126,3 +126,21 @@ changes that node's heartbeat rate live. Parameters (cluster address, node
 count, device types/mix, heartbeat interval, duration, ...) can be given as
 flags or in a YAML config file; flags override the file. `scripts/k8s-fleet.sh 50`
 deploys and loads 50 devices with a report; `scripts/k8s-up.sh down` removes the cluster.
+
+### More simulator options
+
+```bash
+# Misbehave on purpose: 10% of commands fail, acks delayed up to 1s, nodes drop
+# off for 10s about every 2 minutes (also settable in the YAML config)
+scripts/simulate.sh --count 20 --failure-rate 0.1 --ack-delay 1s --churn-interval 2m
+
+# Run the fleet inside the cluster instead of on your laptop
+scripts/k8s-simulator.sh 20 --set simulator.deviceTypes.gpu=5
+scripts/k8s-simulator.sh logs              # instructions from the web UI appear here
+scripts/k8s-simulator.sh down
+```
+
+The web UI's home view lists the latest instructions across the whole fleet
+(params, status, round-trip time, and the device's response); selecting a device
+shows the same for that node. Nodes report type-specific synthetic telemetry
+(switch ports/throughput, GPU utilization/temperature/power, edge CPU/memory).

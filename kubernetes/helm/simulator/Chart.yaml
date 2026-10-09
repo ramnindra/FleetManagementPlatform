@@ -1,0 +1,6 @@
+apiVersion: v2
+name: simulator
+description: Simulated device fleet that connects to the device-controller release (local/test use)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

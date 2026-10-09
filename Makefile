@@ -1,4 +1,4 @@
-.PHONY: k8s-up k8s-fleet demo provision setup build test local-up local-down simulate load-test logs k8s-deploy k8s-test k8s-down monitoring-up monitoring-down
+.PHONY: k8s-simulator k8s-up k8s-fleet demo provision setup build test local-up local-down simulate load-test logs k8s-deploy k8s-test k8s-down monitoring-up monitoring-down
 
 setup:
 	cd controller && go mod download
@@ -45,6 +45,9 @@ provision:
 
 simulate:
 	./scripts/simulate.sh --count $${COUNT:-10}
+
+k8s-simulator:
+	./scripts/k8s-simulator.sh $${COUNT:-10}
 
 k8s-up:
 	./scripts/k8s-up.sh --fresh

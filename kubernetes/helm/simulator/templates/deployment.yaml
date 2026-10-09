@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app.kubernetes.io/name: simulator
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: simulator
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: simulator
+        app.kubernetes.io/instance: {{ .Release.Name }}
+      annotations:
+        # Restart the pod (a new fleet) when the config changes.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+      containers:
+        - name: simulator
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # Instructions received from the web UI are printed to stdout:
+          #   kubectl logs -f deploy/{{ .Release.Name }}
+          args: ["--config", "/etc/simulator/config.yaml", "--admin-api-key", "$(ADMIN_API_KEY)"]
+          env:
+            - name: ADMIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-admin" .Release.Name) .Values.controller.existingAdminKeySecret }}
+                  key: admin-api-key
+          volumeMounts:
+            - { name: config, mountPath: /etc/simulator, readOnly: true }
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Release.Name }}-config
