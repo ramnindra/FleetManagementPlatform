@@ -80,3 +80,16 @@ func TestValidation(t *testing.T) {
 		t.Error("missing config file should error")
 	}
 }
+
+func TestBehaviorSettings(t *testing.T) {
+	p := writeCfg(t, "failure_rate: 0.25\nack_delay: 500ms\nchurn_interval: 2m\nchurn_downtime: 5s\n")
+	s, err := parseSettings([]string{"--config", p, "--failure-rate", "0.5"})
+	if err != nil || s.FailureRate != 0.5 || s.AckDelay != 500*time.Millisecond || s.ChurnInterval != 2*time.Minute || s.ChurnDowntime != 5*time.Second {
+		t.Fatalf("%v %+v", err, s)
+	}
+	for _, args := range [][]string{{"--failure-rate", "1.5"}, {"--ack-delay", "-1s"}} {
+		if _, err := parseSettings(args); err == nil {
+			t.Errorf("%v: expected error", args)
+		}
+	}
+}

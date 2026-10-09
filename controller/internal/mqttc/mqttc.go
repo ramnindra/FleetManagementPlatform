@@ -62,9 +62,33 @@ func (cl *Client) Stop() { cl.c.Disconnect(500) }
 
 func (cl *Client) onConnect(c paho.Client) {
 	slog.Info("mqtt_connected")
-	filters := map[string]byte{heartbeatTopic: 1, telemetryTopic: 1, ackTopic: 1}
-	if t := c.SubscribeMultiple(filters, cl.onMessage); t.Wait() && t.Error() != nil {
-		slog.Error("mqtt_subscribe_failed", "error", t.Error())
+	// Subscribe from a goroutine: blocking inside the connect handler would stall paho.
+	go cl.subscribeAll(c)
+}
+
+// subscribeAll subscribes to every device topic and retries any the broker
+// refuses. A SUBACK can grant a topic with failure code 0x80 — notably when
+// EMQX's authz webhook (served by this very controller) is not reachable yet
+// on a fresh deploy. Without a retry that subscription would be silently lost
+// until the next reconnect, and e.g. heartbeats would never be recorded.
+func (cl *Client) subscribeAll(c paho.Client) {
+	pending := map[string]byte{heartbeatTopic: 1, telemetryTopic: 1, ackTopic: 1}
+	for delay := time.Second; len(pending) > 0 && c.IsConnectionOpen(); delay = min(delay*2, 15*time.Second) {
+		t := c.SubscribeMultiple(pending, cl.onMessage)
+		t.Wait()
+		if st, ok := t.(*paho.SubscribeToken); ok && t.Error() == nil {
+			for topic, code := range st.Result() {
+				if code != 0x80 {
+					delete(pending, topic)
+				}
+			}
+		}
+		if len(pending) == 0 {
+			slog.Info("mqtt_subscribed")
+			return
+		}
+		slog.Warn("mqtt_subscribe_refused_retrying", "topics", len(pending), "retry_in", delay)
+		time.Sleep(delay)
 	}
 }
 

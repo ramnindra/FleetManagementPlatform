@@ -31,6 +31,8 @@ type Metrics struct {
 	CommandsReceived       atomic.Int64
 	CommandsAcked          atomic.Int64
 	Reconnects             atomic.Int64
+	InjectedFailures       atomic.Int64
+	ChurnDrops             atomic.Int64
 }
 
 func (m *Metrics) Snapshot() map[string]int64 {
@@ -43,6 +45,8 @@ func (m *Metrics) Snapshot() map[string]int64 {
 		"commands_received":        m.CommandsReceived.Load(),
 		"commands_acked":           m.CommandsAcked.Load(),
 		"reconnects":               m.Reconnects.Load(),
+		"injected_failures":        m.InjectedFailures.Load(),
+		"churn_drops":              m.ChurnDrops.Load(),
 	}
 }
 
@@ -58,6 +62,13 @@ type Config struct {
 	// before giving up. At 1,000 devices this also measures the simulator's
 	// own scheduling, not just the broker/controller (docs/load-test-report.md).
 	ConnectWait time.Duration
+
+	// Behavior knobs (all off by default).
+	FailureRate   float64       // fraction of commands (0..1) a device fails instead of executing
+	AckDelay      time.Duration // each ack is delayed by a random 0..AckDelay
+	ChurnInterval time.Duration // mean time between random drops per device; 0 = never
+	ChurnDowntime time.Duration // how long a dropped device stays offline
+
 	// OnCommand, if set, is called for every instruction a device receives
 	// from the controller (e.g. sent from the web UI) after it has been handled.
 	OnCommand func(CommandEvent)
@@ -201,7 +212,17 @@ func (d *Device) onMessage(c paho.Client, msg paho.Message) {
 	action, _ := payload["action"].(string)
 	params, _ := payload["params"].(map[string]any)
 
-	status, result := d.execute(action, params)
+	if d.cfg.AckDelay > 0 {
+		time.Sleep(time.Duration(rand.Float64() * float64(d.cfg.AckDelay)))
+	}
+	var status string
+	var result map[string]any
+	if d.cfg.FailureRate > 0 && rand.Float64() < d.cfg.FailureRate {
+		d.metrics.InjectedFailures.Add(1)
+		status, result = "failed", map[string]any{"error": "simulated failure (injected)", "simulated": true}
+	} else {
+		status, result = d.execute(action, params)
+	}
 	ack, _ := json.Marshal(map[string]any{"command_id": commandID, "status": status, "result": result})
 	c.Publish(fmt.Sprintf("devices/%s/cmd/ack", d.ID), 1, false, ack)
 	d.metrics.CommandsAcked.Add(1)
@@ -219,7 +240,7 @@ func (d *Device) execute(action string, params map[string]any) (string, map[stri
 	case "get_status":
 		return "success", map[string]any{"status": "healthy", "device_id": d.ID, "device_type": d.Type, "simulated": true}
 	case "get_system_info":
-		return "success", map[string]any{"hostname": d.ID, "platform": "simulated", "device_type": d.Type, "simulated": true}
+		return "success", map[string]any{"hostname": d.ID, "platform": "simulated", "device_type": d.Type, "telemetry": Telemetry(d.Type), "simulated": true}
 	case "update_config":
 		applied, rejected := map[string]any{}, []string{}
 		for k, v := range params {
@@ -240,11 +261,13 @@ func (d *Device) SendHeartbeat() {
 	d.mu.Lock()
 	c := d.client
 	d.mu.Unlock()
-	if c == nil {
+	if c == nil || !c.IsConnectionOpen() {
 		return
 	}
-	b, _ := json.Marshal(map[string]any{"status": "healthy", "ts": float64(time.Now().UnixMilli()) / 1000})
-	c.Publish(fmt.Sprintf("devices/%s/heartbeat", d.ID), 1, false, b)
+	hb, _ := json.Marshal(map[string]any{"status": "healthy", "ts": float64(time.Now().UnixMilli()) / 1000})
+	c.Publish(fmt.Sprintf("devices/%s/heartbeat", d.ID), 1, false, hb)
+	tel, _ := json.Marshal(Telemetry(d.Type))
+	c.Publish(fmt.Sprintf("devices/%s/telemetry", d.ID), 1, false, tel)
 	d.metrics.HeartbeatsSent.Add(1)
 }
 
@@ -275,6 +298,47 @@ func (d *Device) HeartbeatLoop(stop <-chan struct{}) {
 		case <-time.After(d.HeartbeatInterval()):
 		case <-stop:
 			return
+		}
+	}
+}
+
+// Reconnect re-establishes the MQTT connection after an intentional drop.
+func (d *Device) Reconnect() bool {
+	before := d.metrics.DevicesConnected.Load()
+	ok := d.Connect()
+	if ok {
+		d.metrics.DevicesConnected.Store(before) // not a new device
+	}
+	return ok
+}
+
+// ChurnLoop randomly drops this device off the network and brings it back, to
+// exercise the controller's offline detection and the broker's reconnect path.
+// Intervals are exponentially distributed around ChurnInterval.
+func (d *Device) ChurnLoop(stop <-chan struct{}) {
+	if d.cfg.ChurnInterval <= 0 {
+		return
+	}
+	for {
+		wait := time.Duration(rand.ExpFloat64() * float64(d.cfg.ChurnInterval))
+		select {
+		case <-time.After(wait):
+		case <-stop:
+			return
+		}
+		d.Disconnect()
+		d.metrics.ChurnDrops.Add(1)
+		select {
+		case <-time.After(d.cfg.ChurnDowntime):
+		case <-stop:
+			return
+		}
+		for !d.Reconnect() {
+			select {
+			case <-time.After(2 * time.Second):
+			case <-stop:
+				return
+			}
 		}
 	}
 }

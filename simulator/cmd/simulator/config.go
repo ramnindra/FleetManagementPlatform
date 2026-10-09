@@ -30,13 +30,19 @@ type Settings struct {
 	Duration          time.Duration  `yaml:"duration"` // 0 = until Ctrl-C
 	ProvisionWorkers  int            `yaml:"provision_workers"`
 	ConnectWait       time.Duration  `yaml:"connect_wait"`
+
+	// Behavior: make the fleet misbehave on purpose.
+	FailureRate   float64       `yaml:"failure_rate"`   // 0..1, fraction of commands that fail
+	AckDelay      time.Duration `yaml:"ack_delay"`      // acks delayed by a random 0..ack_delay
+	ChurnInterval time.Duration `yaml:"churn_interval"` // mean time between random drops per node; 0 = off
+	ChurnDowntime time.Duration `yaml:"churn_downtime"` // how long a dropped node stays offline
 }
 
 func defaults() Settings {
 	return Settings{
 		APIEndpoint: "http://localhost:8000", MQTTHost: "localhost", MQTTPort: 1883, AdminAPIKey: "dev-admin-key",
 		Count: 10, DeviceType: "edge", HeartbeatInterval: 10 * time.Second, Duration: 0,
-		ProvisionWorkers: 50, ConnectWait: 10 * time.Second,
+		ProvisionWorkers: 50, ConnectWait: 10 * time.Second, ChurnDowntime: 10 * time.Second,
 	}
 }
 
@@ -80,6 +86,10 @@ func parseSettings(args []string) (Settings, error) {
 	fs.DurationVar(&s.Duration, "duration", s.Duration, "run time; 0 = until Ctrl-C")
 	fs.IntVar(&s.ProvisionWorkers, "provision-workers", s.ProvisionWorkers, "concurrent provisioning workers")
 	fs.DurationVar(&s.ConnectWait, "connect-wait", s.ConnectWait, "per-device connect wait before giving up")
+	fs.Float64Var(&s.FailureRate, "failure-rate", s.FailureRate, "fraction (0..1) of commands that fail")
+	fs.DurationVar(&s.AckDelay, "ack-delay", s.AckDelay, "delay each ack by a random 0..ack-delay")
+	fs.DurationVar(&s.ChurnInterval, "churn-interval", s.ChurnInterval, "mean time between random node drops; 0 = off")
+	fs.DurationVar(&s.ChurnDowntime, "churn-downtime", s.ChurnDowntime, "how long a dropped node stays offline")
 	if err := fs.Parse(args); err != nil {
 		return s, err
 	}
@@ -135,6 +145,12 @@ func (s *Settings) validate() error {
 		if !valid[t] || n < 0 {
 			return fmt.Errorf("device_types: invalid entry %s: %d", t, n)
 		}
+	}
+	if s.FailureRate < 0 || s.FailureRate > 1 {
+		return fmt.Errorf("failure-rate must be between 0 and 1")
+	}
+	if s.AckDelay < 0 || s.ChurnInterval < 0 || s.ChurnDowntime < 0 {
+		return fmt.Errorf("ack-delay, churn-interval and churn-downtime must not be negative")
 	}
 	if s.HeartbeatInterval < time.Second {
 		return fmt.Errorf("heartbeat-interval must be at least 1s")

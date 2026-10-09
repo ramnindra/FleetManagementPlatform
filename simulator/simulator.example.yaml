@@ -18,3 +18,9 @@ heartbeat_interval: 10s
 duration: 0s                # 0 = run until Ctrl-C
 provision_workers: 50
 connect_wait: 10s
+
+# --- Behavior: make the fleet misbehave on purpose (all off by default) ---
+failure_rate: 0.0           # fraction of commands (0..1) a node fails instead of executing
+ack_delay: 0s               # acks are delayed by a random 0..ack_delay
+churn_interval: 0s          # mean time between random drops per node (e.g. 2m); 0 = never
+churn_downtime: 10s         # how long a dropped node stays offline before reconnecting

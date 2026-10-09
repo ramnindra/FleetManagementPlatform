@@ -41,6 +41,7 @@ func main() {
 	cfg := sim.Config{
 		APIEndpoint: s.APIEndpoint, MQTTHost: s.MQTTHost, MQTTPort: s.MQTTPort, AdminAPIKey: s.AdminAPIKey,
 		HeartbeatInterval: s.HeartbeatInterval, DeviceType: s.DeviceType, RunID: sim.NewRunID(), ConnectWait: s.ConnectWait,
+		FailureRate: s.FailureRate, AckDelay: s.AckDelay, ChurnInterval: s.ChurnInterval, ChurnDowntime: s.ChurnDowntime,
 		OnCommand: func(e sim.CommandEvent) {
 			params, _ := json.Marshal(e.Params)
 			result, _ := json.Marshal(e.Result)
@@ -84,6 +85,7 @@ func main() {
 
 	for _, d := range connected {
 		go d.HeartbeatLoop(ctx.Done())
+		go d.ChurnLoop(ctx.Done())
 	}
 	tick := time.NewTicker(15 * time.Second)
 	defer tick.Stop()
