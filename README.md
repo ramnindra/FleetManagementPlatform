@@ -29,7 +29,7 @@ system end to end.
 ## Quickstart (local, no AWS required)
 
 ```bash
-make setup      # downloads Go modules; creates .venv for the Python simulator tooling
+make setup      # downloads Go modules for all services and tools
 make test       # runs controller + device-agent Go test suites
 make local-up   # docker compose up: postgres + emqx + controller
 make simulate   # spins up 10 simulated devices for 60s
@@ -70,7 +70,7 @@ curl -s http://localhost:8000/api/v1/devices/gpu-node-001/status
 ```
 
 For onboarding many devices at once instead of one at a time, see
-`docs/provisioning.md` and `provisioning/scripts/bulk_provision.py`.
+`docs/provisioning.md` and `provisioning/cmd/bulk-provision`.
 
 ### Beyond one device
 

@@ -10,7 +10,7 @@ make setup && make test && make local-up && make simulate
 controller uses `Base.metadata.create_all()` on startup when
 `CONTROLLER_ENVIRONMENT=development` (set in `docker-compose.yml`) — this is
 a dev-only convenience; staging/prod use the `controller migrate` Job described
-below instead (see `controller/app/main.py`).
+below instead (see `controller/cmd/controller/main.go`).
 
 ## Local Kubernetes via kind (Phase 5)
 

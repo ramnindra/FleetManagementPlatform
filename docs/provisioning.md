@@ -4,7 +4,7 @@
 
 A device is never trusted just because it claims a `device_id`. The chain is:
 
-1. An **operator** (via `bulk_provision.py` or a direct admin API call) registers
+1. An **operator** (via `bulk-provision` or a direct admin API call) registers
    a device, authenticated with `CONTROLLER_ADMIN_API_KEY`. This creates a
    `pending_enrollment` device record and a one-time, short-lived
    (`CONTROLLER_ENROLLMENT_TOKEN_TTL_SECONDS`, default 1h) enrollment token —
@@ -29,12 +29,12 @@ It's worth being explicit about what provisions what, since the words overlap:
 
 | Layer | What it creates | Tool |
 |---|---|---|
-| **Physical device provisioning** | A device record in the controller + an enrollment bundle delivered to real hardware | `provisioning/scripts/bulk_provision.py` (this doc) |
+| **Physical device provisioning** | A device record in the controller + an enrollment bundle delivered to real hardware | `provisioning/cmd/bulk-provision` (this doc) |
 | **Cloud infrastructure provisioning** | VPC, EKS, RDS, ECR, IAM, Secrets Manager | Terraform (`infrastructure/terraform/`, Phase 6) |
 | **Kubernetes resource provisioning** | Deployments, Services, HPAs, etc. for the controller app itself | Helm (`kubernetes/helm/`, Phase 5) |
 
 Kubernetes cannot provision a physical switch or GPU server, and Terraform
-doesn't know a device exists — `bulk_provision.py` only ever talks to the
+doesn't know a device exists — `bulk-provision` only ever talks to the
 controller's REST API, nothing cloud- or cluster-specific.
 
 ## Delivery method: enrollment bundles
@@ -61,15 +61,13 @@ below) — not implemented here, but compatible with it.
 ## Running it
 
 ```bash
-cd provisioning/scripts
-python3.12 -m venv ../.venv && ../.venv/bin/pip install -r requirements.txt
-
-../.venv/bin/python bulk_provision.py \
-  --inventory ../inventory/devices.example.yaml \
+cd provisioning
+go run ./cmd/bulk-provision \
+  --inventory inventory/devices.example.yaml \
   --api-endpoint http://localhost:8000 \
   --admin-api-key dev-admin-key \
   --mqtt-host localhost \
-  --output-dir ../output \
+  --output-dir output \
   --verify
 ```
 
@@ -103,7 +101,7 @@ ssh user@device-host 'sudo systemctl enable --now device-agent'
   invalidates the current credential (the device is rejected at the MQTT auth
   webhook) and re-opens enrollment with a fresh one-time token — deliver that
   token to the device the same way as initial enrollment, and the running
-  agent's existing enroll logic in `device-agent/agent/main.py` picks it up
+  agent's existing enroll logic in `device-agent/cmd/device-agent/main.go` picks it up
   on its next restart.
 
   *Known simplification*: there's a brief window where the device is offline

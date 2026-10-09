@@ -1,0 +1,255 @@
+// Package sim holds the simulated-device logic shared by cmd/simulator (smoke
+// tests with a handful of devices) and cmd/load-test (hundreds to 1,000
+// devices). A simulated device goes through the exact same register -> enroll
+// -> connect -> heartbeat -> command/ack flow as the real device-agent, just
+// driven by goroutines instead of one process per device, so it is an honest
+// exercise of the controller and broker.
+package sim
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log/slog"
+	"math/rand/v2"
+	"net/http"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	paho "github.com/eclipse/paho.mqtt.golang"
+)
+
+// Metrics are counters shared across all simulated devices in a run.
+type Metrics struct {
+	DevicesProvisioned     atomic.Int64
+	DevicesProvisionFailed atomic.Int64
+	DevicesConnected       atomic.Int64
+	DevicesConnectFailed   atomic.Int64
+	HeartbeatsSent         atomic.Int64
+	CommandsReceived       atomic.Int64
+	CommandsAcked          atomic.Int64
+	Reconnects             atomic.Int64
+}
+
+func (m *Metrics) Snapshot() map[string]int64 {
+	return map[string]int64{
+		"devices_provisioned":      m.DevicesProvisioned.Load(),
+		"devices_provision_failed": m.DevicesProvisionFailed.Load(),
+		"devices_connected":        m.DevicesConnected.Load(),
+		"devices_connect_failed":   m.DevicesConnectFailed.Load(),
+		"heartbeats_sent":          m.HeartbeatsSent.Load(),
+		"commands_received":        m.CommandsReceived.Load(),
+		"commands_acked":           m.CommandsAcked.Load(),
+		"reconnects":               m.Reconnects.Load(),
+	}
+}
+
+type Config struct {
+	APIEndpoint       string
+	MQTTHost          string
+	MQTTPort          int
+	AdminAPIKey       string
+	HeartbeatInterval time.Duration
+	DeviceType        string
+	RunID             string
+	// ConnectWait is how long each device waits for its own connect callback
+	// before giving up. At 1,000 devices this also measures the simulator's
+	// own scheduling, not just the broker/controller (docs/load-test-report.md).
+	ConnectWait time.Duration
+}
+
+func NewRunID() string { return fmt.Sprintf("%d-%d", time.Now().Unix(), 1000+rand.IntN(9000)) }
+
+var httpClient = &http.Client{Timeout: 10 * time.Second}
+
+type Device struct {
+	ID         string
+	cfg        Config
+	metrics    *Metrics
+	credential string
+
+	mu        sync.Mutex
+	client    paho.Client
+	connected chan struct{} // closed when the current connection attempt succeeds
+	expected  bool          // next disconnect is intentional (not a "reconnect")
+	up        bool
+}
+
+func NewDevice(index int, cfg Config, m *Metrics) *Device {
+	return &Device{ID: fmt.Sprintf("%s-sim-%s-%05d", cfg.DeviceType, cfg.RunID, index), cfg: cfg, metrics: m}
+}
+
+func postJSON(url string, headers map[string]string, body any, out any) error {
+	b, _ := json.Marshal(body)
+	req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("%s: HTTP %d: %s", url, resp.StatusCode, raw)
+	}
+	return json.Unmarshal(raw, out)
+}
+
+// Provision registers and enrolls the device, storing its credential.
+func (d *Device) Provision() bool {
+	var reg struct {
+		EnrollmentToken string `json:"enrollment_token"`
+	}
+	err := postJSON(d.cfg.APIEndpoint+"/api/v1/devices/register",
+		map[string]string{"X-Api-Key": d.cfg.AdminAPIKey},
+		map[string]string{"device_id": d.ID, "device_type": d.cfg.DeviceType}, &reg)
+	var enr struct {
+		DeviceCredential string `json:"device_credential"`
+	}
+	if err == nil {
+		err = postJSON(fmt.Sprintf("%s/api/v1/devices/%s/enroll", d.cfg.APIEndpoint, d.ID), nil,
+			map[string]string{"enrollment_token": reg.EnrollmentToken}, &enr)
+	}
+	if err != nil {
+		slog.Warn("provision_failed", "device_id", d.ID, "error", err)
+		d.metrics.DevicesProvisionFailed.Add(1)
+		return false
+	}
+	d.credential = enr.DeviceCredential
+	d.metrics.DevicesProvisioned.Add(1)
+	return true
+}
+
+// Connect opens the MQTT connection and waits up to ConnectWait for success.
+func (d *Device) Connect() bool {
+	connected := make(chan struct{})
+	var once sync.Once
+	opts := paho.NewClientOptions().
+		AddBroker(fmt.Sprintf("tcp://%s:%d", d.cfg.MQTTHost, d.cfg.MQTTPort)).
+		SetClientID(d.ID).SetUsername(d.ID).SetPassword(d.credential).
+		SetKeepAlive(30 * time.Second).
+		SetAutoReconnect(true).SetMaxReconnectInterval(30 * time.Second).
+		SetOrderMatters(false).
+		// Only a *successful* connect calls this handler (paho does not invoke
+		// it for rejected auth), so devices_connected stays trustworthy.
+		SetOnConnectHandler(func(c paho.Client) {
+			c.Subscribe(fmt.Sprintf("devices/%s/cmd", d.ID), 1, d.onMessage)
+			d.mu.Lock()
+			d.up = true
+			d.mu.Unlock()
+			once.Do(func() { close(connected) })
+		}).
+		SetConnectionLostHandler(func(paho.Client, error) {
+			// Only unplanned drops count as "reconnects"; an intentional
+			// Disconnect() (forced-reconnect test, shutdown) sets expected first.
+			d.mu.Lock()
+			if d.up && !d.expected {
+				d.metrics.Reconnects.Add(1)
+			}
+			d.up, d.expected = false, false
+			d.mu.Unlock()
+		})
+	c := paho.NewClient(opts)
+	d.mu.Lock()
+	d.client, d.connected = c, connected
+	d.mu.Unlock()
+
+	// Non-blocking Connect: retries in the background; we bound the wait.
+	t := c.Connect()
+	if t.WaitTimeout(d.cfg.ConnectWait) && t.Error() == nil {
+		d.metrics.DevicesConnected.Add(1)
+		return true
+	}
+	// Without this a client that never connected would keep retrying forever,
+	// hammering EMQX's auth webhook for the rest of the test (the zombie
+	// clients that distorted an earlier 1,000-device run; see
+	// docs/load-test-report.md).
+	c.Disconnect(0)
+	d.metrics.DevicesConnectFailed.Add(1)
+	return false
+}
+
+func (d *Device) onMessage(c paho.Client, msg paho.Message) {
+	var payload map[string]any
+	if json.Unmarshal(msg.Payload(), &payload) != nil {
+		return
+	}
+	d.metrics.CommandsReceived.Add(1)
+	ack, _ := json.Marshal(map[string]any{
+		"command_id": payload["command_id"], "status": "success", "result": map[string]any{"simulated": true},
+	})
+	c.Publish(fmt.Sprintf("devices/%s/cmd/ack", d.ID), 1, false, ack)
+	d.metrics.CommandsAcked.Add(1)
+}
+
+func (d *Device) SendHeartbeat() {
+	d.mu.Lock()
+	c := d.client
+	d.mu.Unlock()
+	if c == nil {
+		return
+	}
+	b, _ := json.Marshal(map[string]any{"status": "healthy", "ts": float64(time.Now().UnixMilli()) / 1000})
+	c.Publish(fmt.Sprintf("devices/%s/heartbeat", d.ID), 1, false, b)
+	d.metrics.HeartbeatsSent.Add(1)
+}
+
+func (d *Device) Disconnect() {
+	d.mu.Lock()
+	c := d.client
+	d.expected = true
+	d.mu.Unlock()
+	if c != nil {
+		c.Disconnect(250)
+	}
+}
+
+// HeartbeatLoop runs until stop is closed.
+func (d *Device) HeartbeatLoop(stop <-chan struct{}) {
+	// Jitter avoids every device heartbeating in the same instant.
+	select {
+	case <-time.After(time.Duration(rand.Float64() * float64(d.cfg.HeartbeatInterval))):
+	case <-stop:
+		return
+	}
+	for {
+		d.SendHeartbeat()
+		select {
+		case <-time.After(d.cfg.HeartbeatInterval):
+		case <-stop:
+			return
+		}
+	}
+}
+
+func (d *Device) ProvisionAndConnect() bool { return d.Provision() && d.Connect() }
+
+// ProvisionAll runs ProvisionAndConnect for all devices with a bounded worker
+// pool and returns the devices that connected.
+func ProvisionAll(devices []*Device, workers int) []*Device {
+	results := make([]bool, len(devices))
+	sem := make(chan struct{}, max(1, workers))
+	var wg sync.WaitGroup
+	for i, d := range devices {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer wg.Done()
+			defer func() { <-sem }()
+			results[i] = d.ProvisionAndConnect()
+		}()
+	}
+	wg.Wait()
+	var ok []*Device
+	for i, d := range devices {
+		if results[i] {
+			ok = append(ok, d)
+		}
+	}
+	return ok
+}

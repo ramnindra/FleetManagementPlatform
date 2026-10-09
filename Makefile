@@ -1,23 +1,24 @@
 .PHONY: setup build test local-up local-down simulate load-test logs k8s-deploy k8s-test k8s-down monitoring-up monitoring-down
 
-SIMULATOR_VENV := simulator/.venv
-
 setup:
 	cd controller && go mod download
 	cd device-agent && go mod download
-	python3.12 -m venv $(SIMULATOR_VENV)
-	$(SIMULATOR_VENV)/bin/pip install -q --upgrade pip
-	$(SIMULATOR_VENV)/bin/pip install -q -r simulator/requirements.txt
+	cd simulator && go mod download
+	cd provisioning && go mod download
 	@echo "Setup complete. Run 'make test' then 'make local-up'."
 
 build:
 	mkdir -p bin
 	cd controller && go build -o ../bin/controller ./cmd/controller
 	cd device-agent && go build -o ../bin/device-agent ./cmd/device-agent
+	cd simulator && go build -o ../bin/simulator ./cmd/simulator && go build -o ../bin/load-test ./cmd/load-test
+	cd provisioning && go build -o ../bin/bulk-provision ./cmd/bulk-provision
 
 test:
 	cd controller && go vet ./... && go test ./...
 	cd device-agent && go vet ./... && go test ./...
+	cd simulator && go vet ./... && go test ./...
+	cd provisioning && go vet ./... && go test ./...
 
 local-up:
 	docker compose up --build -d
@@ -37,11 +38,11 @@ logs:
 	docker compose logs -f
 
 simulate:
-	cd simulator && .venv/bin/python simulator.py --count 10 --duration-seconds 60 \
+	cd simulator && go run ./cmd/simulator --count 10 --duration 60s \
 		--api-endpoint http://localhost:8000 --mqtt-host localhost --admin-api-key dev-admin-key
 
 load-test:
-	cd simulator && .venv/bin/python load_test.py --count $${COUNT:-100} \
+	cd simulator && go run ./cmd/load-test --count $${COUNT:-100} \
 		--api-endpoint http://localhost:8000 --mqtt-host localhost --admin-api-key dev-admin-key \
 		--report-dir ../docs/load-test-results
 

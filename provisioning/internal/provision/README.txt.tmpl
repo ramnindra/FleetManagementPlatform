@@ -1,0 +1,20 @@
+Enrollment bundle for device: {{ .DeviceID }}
+
+This directory contains everything needed to bring this device online:
+
+  config.yaml  — copy to /etc/device-agent/config.yaml on the device
+                 (chmod 600; it contains a one-time enrollment token)
+
+To start the agent on the device (see device-agent/systemd/device-agent.service
+for the long-running service definition):
+
+    sudo mkdir -p /etc/device-agent
+    sudo cp config.yaml /etc/device-agent/config.yaml
+    sudo chmod 600 /etc/device-agent/config.yaml
+    sudo systemctl enable --now device-agent
+
+The agent exchanges the enrollment token in config.yaml for a long-lived
+credential on its first run, then connects over MQTT and starts heartbeating.
+If the device is already enrolled, re-running this bundle's enrollment step
+will fail (by design) — use the controller's credential-rotation endpoint
+instead (POST /api/v1/devices/{{ .DeviceID }}/credentials/rotate).
